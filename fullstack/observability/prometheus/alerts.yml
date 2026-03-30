@@ -1,0 +1,36 @@
+groups:
+  - name: lexibridge-core-alerts
+    rules:
+      - alert: LexiBridgeAppDown
+        expr: up{job="lexibridge-app"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "LexiBridge app is unreachable"
+          description: "Prometheus cannot scrape /actuator/prometheus for 1 minute."
+
+      - alert: LexiBridgeHighHttp5xxRate
+        expr: |
+          sum(rate(http_server_requests_seconds_count{job="lexibridge-app",status=~"5.."}[5m]))
+            /
+          clamp_min(sum(rate(http_server_requests_seconds_count{job="lexibridge-app"}[5m])), 1)
+            > 0.05
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High 5xx error ratio"
+          description: "More than 5% of HTTP responses are 5xx over the last 5 minutes."
+
+      - alert: LexiBridgeHighJvmMemoryUsage
+        expr: |
+          (jvm_memory_used_bytes{job="lexibridge-app",area="heap"}
+            /
+           clamp_min(jvm_memory_max_bytes{job="lexibridge-app",area="heap"}, 1)) > 0.9
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High JVM heap usage"
+          description: "Heap utilization is above 90% for at least 10 minutes."

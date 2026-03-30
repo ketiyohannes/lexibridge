@@ -1,0 +1,108 @@
+name: lexibridge
+
+services:
+  mysql:
+    image: mysql:8.4
+    container_name: lexibridge-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: lexibridge
+      MYSQL_USER: lexibridge
+      MYSQL_PASSWORD: lexibridge
+      MYSQL_ROOT_PASSWORD: root
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-proot"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: lexibridge-app
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+    environment:
+      DB_HOST: ${DB_HOST:-mysql}
+      DB_PORT: ${DB_PORT:-3306}
+      DB_NAME: ${DB_NAME:-lexibridge}
+      DB_USER: ${DB_USER:-lexibridge}
+      DB_PASSWORD: ${DB_PASSWORD:-lexibridge}
+      SERVER_PORT: ${SERVER_PORT:-8080}
+      FIELD_ENCRYPTION_KEY: ${FIELD_ENCRYPTION_KEY:-1234567890abcdef1234567890abcdef}
+      BOOTSTRAP_ENABLED: ${BOOTSTRAP_ENABLED:-true}
+      BOOTSTRAP_ADMIN_USERNAME: ${BOOTSTRAP_ADMIN_USERNAME:-admin}
+      BOOTSTRAP_ADMIN_FULL_NAME: ${BOOTSTRAP_ADMIN_FULL_NAME:-LexiBridge Admin}
+      BOOTSTRAP_ADMIN_PASSWORD: ${BOOTSTRAP_ADMIN_PASSWORD:-AdminPass2026!}
+      BOOTSTRAP_DEVICE_CLIENT_KEY: ${BOOTSTRAP_DEVICE_CLIENT_KEY:-demo-device}
+      BOOTSTRAP_DEVICE_SHARED_SECRET: ${BOOTSTRAP_DEVICE_SHARED_SECRET:-local-dev-shared-secret-2026}
+      ANTIVIRUS_TCP_HOST: ${ANTIVIRUS_TCP_HOST:-clamav}
+      ANTIVIRUS_TCP_PORT: ${ANTIVIRUS_TCP_PORT:-3310}
+    ports:
+      - "${APP_PORT:-8081}:8080"
+
+  clamav:
+    image: clamav/clamav:1.4
+    container_name: lexibridge-clamav
+    restart: unless-stopped
+    profiles: ["security"]
+    environment:
+      CLAMAV_NO_FRESHCLAMD: "false"
+    healthcheck:
+      test: ["CMD", "clamdscan", "--version"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    container_name: lexibridge-prometheus
+    restart: unless-stopped
+    profiles: ["observability"]
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.retention.time=15d"
+    volumes:
+      - ./observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./observability/prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
+    ports:
+      - "9090:9090"
+    depends_on:
+      - app
+
+  alertmanager:
+    image: prom/alertmanager:v0.27.0
+    container_name: lexibridge-alertmanager
+    restart: unless-stopped
+    profiles: ["observability"]
+    command:
+      - "--config.file=/etc/alertmanager/alertmanager.yml"
+    volumes:
+      - ./observability/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+    ports:
+      - "9093:9093"
+
+  grafana:
+    image: grafana/grafana:11.1.4
+    container_name: lexibridge-grafana
+    restart: unless-stopped
+    profiles: ["observability"]
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
+    ports:
+      - "3000:3000"
+    depends_on:
+      - prometheus
+
+volumes:
+  mysql_data:
+    name: lexibridge_mysql_data

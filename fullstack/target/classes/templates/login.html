@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sign In | LexiBridge Operations</title>
+    <link rel="stylesheet" href="/css/portal-forms.css">
+    <style>
+        :root {
+            --bg-a: #e8f5ff;
+            --bg-b: #fff7e8;
+            --panel: #ffffff;
+            --text: #1e293b;
+            --accent: #0f766e;
+            --danger: #b91c1c;
+            --line: #dbe4f0;
+        }
+        * { box-sizing: border-box; }
+        body {
+            margin: 0;
+            min-height: 100vh;
+            font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
+            background:
+                radial-gradient(circle at 15% 15%, var(--bg-a), transparent 35%),
+                radial-gradient(circle at 100% 100%, var(--bg-b), transparent 32%),
+                #f8fafc;
+            display: grid;
+            place-items: center;
+            color: var(--text);
+            padding: 1rem;
+        }
+        .panel {
+            width: min(460px, 100%);
+            background: var(--panel);
+            border: 1px solid var(--line);
+            border-radius: 18px;
+            padding: 1.5rem 1.5rem 1.2rem;
+            box-shadow: 0 22px 46px rgba(15, 23, 42, 0.12);
+        }
+        h1 { margin: 0 0 .25rem; font-size: 1.45rem; }
+        p { margin: 0 0 1rem; color: #475569; }
+        label { display: block; margin-bottom: .35rem; font-weight: 600; }
+        input {
+            width: 100%;
+            border: 1px solid #cbd5e1;
+            border-radius: 10px;
+            padding: .65rem .75rem;
+            font-size: 1rem;
+            margin-bottom: .9rem;
+            transition: border-color .12s ease;
+        }
+        input:focus { border-color: #14b8a6; outline: none; }
+        button {
+            width: 100%;
+            border: 0;
+            border-radius: 10px;
+            padding: .7rem .8rem;
+            background: var(--accent);
+            color: #fff;
+            font-weight: 700;
+            cursor: pointer;
+        }
+        button:hover { filter: brightness(1.05); }
+        .notice {
+            border-radius: 8px;
+            padding: .6rem .7rem;
+            font-size: .92rem;
+            margin-bottom: .8rem;
+        }
+        .error { background: #fee2e2; color: var(--danger); border: 1px solid #fecaca; }
+        .ok { background: #dcfce7; color: #166534; border: 1px solid #bbf7d0; }
+        .hint {
+            margin-top: .9rem;
+            font-size: .85rem;
+            color: #475569;
+            border: 1px solid #dbeafe;
+            border-radius: 10px;
+            padding: .6rem .7rem;
+            background: #f8fbff;
+        }
+        .hint strong { color: #0f172a; }
+    </style>
+</head>
+<body>
+<section class="panel">
+    <h1>LexiBridge Operations Suite</h1>
+    <p>Sign in to access the operations portal.</p>
+
+    <div class="notice error" th:if="${param.error}">Invalid credentials or account is temporarily locked.</div>
+    <div class="notice ok" th:if="${param.logout}">Signed out successfully.</div>
+
+    <form method="post" th:action="@{/login}">
+        <label for="username">Username</label>
+        <input id="username" name="username" type="text" autocomplete="username" required>
+
+        <label for="password">Password</label>
+        <input id="password" name="password" type="password" autocomplete="current-password" required>
+
+        <button type="submit">Sign In</button>
+    </form>
+</section>
+</body>
+</html>

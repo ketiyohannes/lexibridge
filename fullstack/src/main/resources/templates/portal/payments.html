@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Payments Module</title>
+    <link rel="stylesheet" href="/css/portal-forms.css">
+    <style>
+        body { font-family: "IBM Plex Sans", "Segoe UI", sans-serif; margin: 1rem; color: #0f172a; background: linear-gradient(180deg, #f9fbff 0%, #f5f7fb 100%); }
+        .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+        .card { border: 1px solid #dbeafe; border-radius: 12px; padding: .8rem; background: #fff; box-shadow: 0 10px 26px rgba(15, 23, 42, 0.04); }
+        .status { display: inline-block; border-radius: 999px; padding: .15rem .45rem; font-size: .76rem; font-weight: 700; }
+        .open { background: #fff7ed; color: #9a3412; }
+        .review { background: #ecfeff; color: #0e7490; }
+        .resolved { background: #ecfdf5; color: #166534; }
+        label { display: block; margin-top: .45rem; font-size: .9rem; font-weight: 600; }
+        input, textarea, select { width: 100%; border: 1px solid #cbd5e1; border-radius: 8px; padding: .45rem .55rem; }
+        textarea { min-height: 70px; }
+        .btn { margin-top: .7rem; border: 0; border-radius: 8px; padding: .5rem .8rem; color: white; font-weight: 700; cursor: pointer; }
+        .btn-primary { background: #0f766e; }
+        .btn-warn { background: #b45309; }
+        .btn-alt { background: #1d4ed8; }
+        table { width: 100%; border-collapse: collapse; }
+        th, td { border-bottom: 1px solid #e2e8f0; text-align: left; padding: .35rem; font-size: .84rem; vertical-align: top; }
+        .alert { margin-top: .7rem; padding: .55rem .7rem; border-radius: 8px; font-size: .9rem; }
+        .alert-error { background: #fef2f2; border: 1px solid #fecaca; color: #991b1b; }
+        .alert-ok { background: #f0fdf4; border: 1px solid #bbf7d0; color: #166534; }
+        .meta { color: #334155; font-size: .86rem; }
+        @media (max-width: 980px) {
+            .grid { grid-template-columns: 1fr; }
+        }
+    </style>
+</head>
+<body>
+<main class="page-wrap section-stack">
+<header class="page-header">
+    <h1>Payments and Reconciliation Module</h1>
+    <p>Offline tender tracking and reconciliation exception management are active.</p>
+</header>
+<div class="grid">
+    <section class="card">
+        <h3>Create Tender</h3>
+        <form method="post" th:action="@{/portal/payments/tenders}">
+            <input type="hidden" th:name="${_csrf.parameterName}" th:value="${_csrf.token}">
+            <label>Booking Order ID</label>
+            <input type="number" min="1" name="bookingOrderId" th:value="${tenderForm.bookingOrderId}">
+            <label>Tender Type</label>
+            <select name="tenderType">
+                <option value="CARD_PRESENT" th:selected="${tenderForm.tenderType == 'CARD_PRESENT'}">CARD_PRESENT</option>
+                <option value="CASH" th:selected="${tenderForm.tenderType == 'CASH'}">CASH</option>
+                <option value="CHECK" th:selected="${tenderForm.tenderType == 'CHECK'}">CHECK</option>
+            </select>
+            <label>Amount</label>
+            <input type="number" min="0.01" step="0.01" name="amount" th:value="${tenderForm.amount}">
+            <label>Currency</label>
+            <input name="currency" th:value="${tenderForm.currency}">
+            <label>Terminal ID</label>
+            <input name="terminalId" th:value="${tenderForm.terminalId}">
+            <label>Terminal Txn ID</label>
+            <input name="terminalTxnId" th:value="${tenderForm.terminalTxnId}">
+            <input type="hidden" name="createdBy" th:value="${tenderForm.createdBy}">
+            <button class="btn btn-primary" type="submit">Create Tender</button>
+        </form>
+
+        <h3>Request Refund</h3>
+        <form method="post" th:action="@{/portal/payments/refunds}">
+            <input type="hidden" th:name="${_csrf.parameterName}" th:value="${_csrf.token}">
+            <label>Tender Entry ID</label>
+            <input type="number" min="1" name="tenderEntryId" th:value="${refundForm.tenderEntryId}">
+            <label>Amount</label>
+            <input type="number" min="0.01" step="0.01" name="amount" th:value="${refundForm.amount}">
+            <label>Currency</label>
+            <input name="currency" th:value="${refundForm.currency}">
+            <label>Reason</label>
+            <textarea name="reason" th:text="${refundForm.reason}"></textarea>
+            <input type="hidden" name="createdBy" th:value="${refundForm.createdBy}">
+            <button class="btn btn-warn" type="submit">Request Refund</button>
+        </form>
+
+        <h3>Daily Reconciliation</h3>
+        <form method="post" th:action="@{/portal/payments/reconciliation}">
+            <input type="hidden" th:name="${_csrf.parameterName}" th:value="${_csrf.token}">
+            <label>Location ID</label>
+            <input type="number" min="1" name="locationId" th:value="${reconForm.locationId}">
+            <label>Business Date</label>
+            <input type="date" name="businessDate" th:value="${reconForm.businessDate}">
+            <input type="hidden" name="actorUserId" th:value="${reconForm.actorUserId}">
+            <button class="btn btn-alt" type="submit">Run Reconciliation</button>
+        </form>
+
+        <h3>Split Policy by Location</h3>
+        <form method="post" th:action="@{/portal/payments/split-policy}">
+            <input type="hidden" th:name="${_csrf.parameterName}" th:value="${_csrf.token}">
+            <label>Location ID</label>
+            <input type="number" min="1" name="locationId" th:value="${splitPolicyForm.locationId}">
+            <label>Merchant Ratio</label>
+            <input type="number" min="0.01" step="0.01" name="merchantRatio" th:value="${splitPolicyForm.merchantRatio}">
+            <label>Platform Ratio</label>
+            <input type="number" min="0.01" step="0.01" name="platformRatio" th:value="${splitPolicyForm.platformRatio}">
+            <input type="hidden" name="actorUserId" th:value="${splitPolicyForm.actorUserId}">
+            <button class="btn btn-alt" type="submit">Update Split Policy</button>
+        </form>
+
+        <div th:if="${paymentsError}" class="alert alert-error" th:text="${paymentsError}"></div>
+        <div th:if="${paymentsSuccess}" class="alert alert-ok" th:text="${paymentsSuccess}"></div>
+
+        <div th:if="${tenderResult}" class="meta"><pre th:text="${tenderResult}"></pre></div>
+        <div th:if="${refundResult}" class="meta"><pre th:text="${refundResult}"></pre></div>
+        <div th:if="${reconResult}" class="meta"><pre th:text="${reconResult}"></pre></div>
+    </section>
+
+    <section class="card">
+        <h3>Exception Queue</h3>
+        <div th:if="${#lists.isEmpty(exceptions)}">No reconciliation exceptions.</div>
+        <div th:each="ex : ${exceptions}">
+            <p>
+                <span class="status" th:classappend="${ex.status == 'OPEN' ? 'open' : (ex.status == 'IN_REVIEW' ? 'review' : 'resolved')}" th:text="${ex.status}">OPEN</span>
+                <strong th:text="${ex.exception_type}">TYPE</strong>
+                <span>#</span><span th:text="${ex.id}">1</span>
+                <span th:if="${ex.resolution_note != null}">- <span th:text="${ex.resolution_note}"></span></span>
+            </p>
+            <form method="post" th:action="@{/portal/payments/exceptions/{exceptionId}/in-review(exceptionId=${ex.id})}">
+                <input type="hidden" th:name="${_csrf.parameterName}" th:value="${_csrf.token}">
+                <input type="hidden" name="note" value="Investigating discrepancy">
+                <button class="btn btn-alt" type="submit">In Review</button>
+            </form>
+            <form method="post" th:action="@{/portal/payments/exceptions/{exceptionId}/resolve(exceptionId=${ex.id})}">
+                <input type="hidden" th:name="${_csrf.parameterName}" th:value="${_csrf.token}">
+                <input type="hidden" name="note" value="Resolved by operator">
+                <button class="btn btn-primary" type="submit">Resolve</button>
+            </form>
+            <form method="post" th:action="@{/portal/payments/exceptions/{exceptionId}/reopen(exceptionId=${ex.id})}">
+                <input type="hidden" th:name="${_csrf.parameterName}" th:value="${_csrf.token}">
+                <input type="hidden" name="note" value="Reopened after validation">
+                <button class="btn btn-warn" type="submit">Reopen</button>
+            </form>
+        </div>
+
+        <h3>Metrics</h3>
+        <pre th:text="${summary}"></pre>
+
+        <h3>Recent Tenders</h3>
+        <table>
+            <thead><tr><th>ID</th><th>Booking</th><th>Amount</th><th>Status</th><th>Terminal</th></tr></thead>
+            <tbody>
+            <tr th:each="t : ${recentTenders}">
+                <td th:text="${t.id}"></td>
+                <td th:text="${'#' + t.booking_order_id}"></td>
+                <td th:text="${t.amount + ' ' + t.currency}"></td>
+                <td th:text="${t.status}"></td>
+                <td th:text="${t.terminal_id != null ? t.terminal_id + '/' + t.terminal_txn_id : '-'}"></td>
+            </tr>
+            </tbody>
+        </table>
+
+        <h3>Recent Refunds</h3>
+        <table>
+            <thead><tr><th>ID</th><th>Tender</th><th>Amount</th><th>Status</th><th>Approve</th></tr></thead>
+            <tbody>
+            <tr th:each="r : ${recentRefunds}">
+                <td th:text="${r.id}"></td>
+                <td th:text="${'#' + r.tender_entry_id}"></td>
+                <td th:text="${r.amount + ' ' + r.currency}"></td>
+                <td th:text="${r.status}"></td>
+                <td>
+                    <form method="post" th:action="@{/portal/payments/refunds/{refundId}/approve(refundId=${r.id})}">
+                        <input type="hidden" th:name="${_csrf.parameterName}" th:value="${_csrf.token}">
+                        <button class="btn btn-primary" type="submit">Approve</button>
+                    </form>
+                </td>
+            </tr>
+            </tbody>
+        </table>
+
+        <h3>Recent Reconciliation Runs</h3>
+        <table>
+            <thead><tr><th>ID</th><th>Location</th><th>Date</th><th>Status</th><th>Export</th></tr></thead>
+            <tbody>
+            <tr th:each="run : ${recentRuns}">
+                <td th:text="${run.id}"></td>
+                <td th:text="${run.location_id}"></td>
+                <td th:text="${run.business_date}"></td>
+                <td th:text="${run.status}"></td>
+                <td>
+                    <a th:href="@{/portal/payments/reconciliation/runs/{runId}/export(runId=${run.id},format='csv')}">CSV</a>
+                    |
+                    <a th:href="@{/portal/payments/reconciliation/runs/{runId}/export(runId=${run.id},format='json')}">JSON</a>
+                </td>
+            </tr>
+            </tbody>
+        </table>
+    </section>
+</div>
+<a class="back-link" href="/portal">Back to dashboard</a>
+</main>
+</body>
+</html>

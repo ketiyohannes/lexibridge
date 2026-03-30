@@ -1,0 +1,21 @@
+global:
+  resolve_timeout: 5m
+
+route:
+  receiver: default-log
+  group_by: ["alertname", "service", "severity"]
+  group_wait: 10s
+  group_interval: 30s
+  repeat_interval: 2h
+
+receivers:
+  - name: default-log
+  - name: slack-receiver
+    slack_configs:
+      - api_url: "http://127.0.0.1:65535/slack-webhook"
+        channel: "#lexibridge-alerts"
+        send_resolved: true
+  - name: webhook-receiver
+    webhook_configs:
+      - url: "http://127.0.0.1:65535/alerts"
+        send_resolved: true
