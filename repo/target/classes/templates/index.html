@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LexiBridge Operations Suite</title>
+    <link rel="stylesheet" href="/css/portal-forms.css">
+    <style>
+        :root {
+            --bg: #f4f8ff;
+            --bg-warm: #fff6e8;
+            --panel: #ffffff;
+            --ink: #1f2937;
+            --muted: #475569;
+            --accent: #0f766e;
+            --accent-2: #0284c7;
+            --line: #dbe4f0;
+            --shadow: 0 22px 46px rgba(15, 23, 42, 0.1);
+        }
+        * { box-sizing: border-box; }
+        body {
+            margin: 0;
+            min-height: 100vh;
+            font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
+            color: var(--ink);
+            background:
+                radial-gradient(circle at 5% 0%, var(--bg-warm), transparent 38%),
+                radial-gradient(circle at 100% 100%, #dcfce7, transparent 30%),
+                var(--bg);
+            padding: 1.2rem;
+        }
+        .shell {
+            width: min(1040px, 100%);
+            margin: 1rem auto;
+            border-radius: 20px;
+            background: var(--panel);
+            border: 1px solid var(--line);
+            box-shadow: var(--shadow);
+            overflow: hidden;
+        }
+        .hero {
+            padding: 1.4rem 1.4rem 1rem;
+            background:
+                linear-gradient(130deg, rgba(15, 118, 110, 0.08), rgba(2, 132, 199, 0.08)),
+                #ffffff;
+            border-bottom: 1px solid var(--line);
+        }
+        .eyebrow {
+            display: inline-block;
+            margin: 0 0 .5rem;
+            padding: .3rem .55rem;
+            border-radius: 999px;
+            background: #ecfeff;
+            border: 1px solid #99f6e4;
+            color: #0f766e;
+            font-size: .78rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: .04em;
+        }
+        h1 {
+            margin: 0;
+            font-size: clamp(1.55rem, 2.8vw, 2.15rem);
+            letter-spacing: 0.1px;
+        }
+        .hero p { color: var(--muted); margin: .55rem 0 0; max-width: 70ch; }
+        .hero-actions {
+            margin-top: .9rem;
+            display: flex;
+            gap: .55rem;
+            flex-wrap: wrap;
+        }
+        .btn {
+            text-decoration: none;
+            border-radius: 10px;
+            padding: .52rem .8rem;
+            font-size: .9rem;
+            font-weight: 700;
+        }
+        .btn-primary {
+            color: #fff;
+            background: linear-gradient(135deg, var(--accent), #14b8a6);
+            box-shadow: 0 8px 18px rgba(15, 118, 110, .22);
+        }
+        .btn-secondary {
+            color: #0f172a;
+            background: #f8fafc;
+            border: 1px solid #cbd5e1;
+        }
+        .content {
+            padding: 1rem 1.4rem 1.3rem;
+            display: grid;
+            gap: 1rem;
+            grid-template-columns: 1.15fr 1fr;
+        }
+        .panel {
+            border: 1px solid var(--line);
+            border-radius: 14px;
+            padding: .9rem;
+            background: #fff;
+        }
+        .panel h2 {
+            margin: 0 0 .55rem;
+            font-size: 1rem;
+        }
+        .module-grid {
+            display: grid;
+            gap: .55rem;
+            grid-template-columns: repeat(2, minmax(120px, 1fr));
+        }
+        .module {
+            display: block;
+            text-decoration: none;
+            color: #0f172a;
+            border: 1px solid #dbe4f0;
+            border-radius: 10px;
+            padding: .6rem;
+            background: #f8fafc;
+            transition: transform .12s ease;
+        }
+        .module:hover { transform: translateY(-2px); }
+        .module strong { display: block; font-size: .9rem; }
+        .module span { font-size: .8rem; color: var(--muted); }
+        .stack {
+            display: flex;
+            gap: .45rem;
+            flex-wrap: wrap;
+            margin-top: .6rem;
+        }
+        .pill {
+            padding: 0.32rem 0.62rem;
+            border-radius: 999px;
+            background: #eef2ff;
+            color: #1e3a8a;
+            border: 1px solid #c7d2fe;
+            font-size: 0.82rem;
+            font-weight: 600;
+        }
+        .meta {
+            margin: 0;
+            padding-left: 1rem;
+            color: var(--muted);
+            font-size: .9rem;
+            display: grid;
+            gap: .4rem;
+        }
+        .login-box {
+            margin-top: .8rem;
+            border: 1px solid #dbeafe;
+            background: #f8fbff;
+            border-radius: 10px;
+            padding: .65rem;
+            font-size: .86rem;
+            color: #334155;
+        }
+        .login-box code {
+            background: #e2e8f0;
+            border-radius: 6px;
+            padding: .06rem .33rem;
+        }
+        @media (max-width: 860px) {
+            .content { grid-template-columns: 1fr; }
+        }
+    </style>
+</head>
+<body>
+<section class="shell">
+    <div class="hero">
+        <span class="eyebrow">Operations Workspace</span>
+        <h1>LexiBridge Learning Center Operations Suite</h1>
+        <p>Everything you need for day-to-day operations: content updates, moderation review, bookings, leave approvals, and payments in one portal.</p>
+        <div class="hero-actions">
+            <a class="btn btn-primary" href="/login">Open Login</a>
+            <a class="btn btn-secondary" href="/portal">Go to Portal</a>
+            <a class="btn btn-secondary" href="/actuator/health">Health Check</a>
+        </div>
+    </div>
+
+    <div class="content">
+        <div class="panel">
+            <h2>Jump to a module</h2>
+            <div class="module-grid">
+                <a class="module" href="/portal/content"><strong>Content</strong><span>Draft and publish lessons</span></a>
+                <a class="module" href="/portal/moderation"><strong>Moderation</strong><span>Review and resolve cases</span></a>
+                <a class="module" href="/portal/bookings"><strong>Bookings</strong><span>Reserve and manage attendance</span></a>
+                <a class="module" href="/portal/leave"><strong>Leave</strong><span>Approvals and SLA tracking</span></a>
+                <a class="module" href="/portal/payments"><strong>Payments</strong><span>Tenders and reconciliation</span></a>
+                <a class="module" href="/portal/admin"><strong>Admin</strong><span>Users, roles, and webhooks</span></a>
+            </div>
+            <div class="stack">
+                <span class="pill">Spring Boot</span>
+                <span class="pill">Thymeleaf</span>
+                <span class="pill">MySQL</span>
+                <span class="pill">Docker Compose</span>
+            </div>
+        </div>
+
+        <div class="panel">
+            <h2>First-time sign in</h2>
+            <ul class="meta">
+                <li>Start services with <code>docker compose up --build</code></li>
+                <li>Open <code>/login</code> and use the default local admin account</li>
+                <li>If login is locked after retries, reset with <code>docker compose down -v</code></li>
+            </ul>
+            <div class="login-box">
+                Username: <code>admin</code><br>
+                Password: <code>AdminPass2026!</code>
+            </div>
+        </div>
+    </div>
+</section>
+</body>
+</html>

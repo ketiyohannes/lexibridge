@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Booking Print Card</title>
+    <link rel="stylesheet" href="/css/portal-forms.css">
+    <style>
+        body { font-family: "IBM Plex Sans", "Segoe UI", sans-serif; margin: 1rem; color: #0f172a; }
+        .card { max-width: 560px; border: 1px solid #cbd5e1; border-radius: 12px; padding: 1rem; }
+        .qr { margin-top: .8rem; }
+        .meta { color: #334155; font-size: .9rem; }
+        @media print {
+            a { display: none; }
+            .card { border: 0; }
+        }
+    </style>
+</head>
+<body>
+<main class="page-wrap section-stack">
+<section class="card">
+    <h1 th:text="${'Booking #' + printCard.bookingId}">Booking #0</h1>
+    <p><strong>Status:</strong> <span th:text="${printCard.status}"></span></p>
+    <p><strong>Customer:</strong> <span th:text="${printCard.customerName}"></span></p>
+    <p><strong>Phone:</strong> <span th:text="${printCard.customerPhone}"></span></p>
+    <p><strong>Window:</strong> <span th:text="${printCard.startAt}"></span> to <span th:text="${printCard.endAt}"></span></p>
+    <div class="qr">
+        <img th:src="${printCard.qrImageUrl}" alt="Booking QR Code" width="220" height="220">
+    </div>
+    <p class="meta">Token: <span th:text="${printCard.qrToken}"></span></p>
+</section>
+<a class="back-link" href="/portal/bookings">Back to bookings</a>
+</main>
+</body>
+</html>

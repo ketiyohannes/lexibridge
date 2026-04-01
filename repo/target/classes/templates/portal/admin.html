@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin Module</title>
+    <link rel="stylesheet" href="/css/portal-forms.css">
+    <style>
+        body { font-family: "IBM Plex Sans", "Segoe UI", sans-serif; margin: 1rem; color: #0f172a; background: linear-gradient(180deg, #f9fbff 0%, #f5f7fb 100%); }
+        .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+        .card { border: 1px solid #dbeafe; border-radius: 12px; padding: .8rem; background: #fff; box-shadow: 0 10px 26px rgba(15, 23, 42, 0.04); }
+        label { display: block; margin-top: .45rem; font-size: .9rem; font-weight: 600; }
+        input { width: 100%; border: 1px solid #cbd5e1; border-radius: 8px; padding: .45rem .55rem; }
+        .btn { margin-top: .7rem; border: 0; border-radius: 8px; padding: .5rem .8rem; color: white; font-weight: 700; cursor: pointer; }
+        .btn-primary { background: #0f766e; }
+        .btn-alt { background: #1d4ed8; }
+        .alert { margin-top: .7rem; padding: .55rem .7rem; border-radius: 8px; font-size: .9rem; }
+        .alert-error { background: #fef2f2; border: 1px solid #fecaca; color: #991b1b; }
+        .alert-ok { background: #f0fdf4; border: 1px solid #bbf7d0; color: #166534; }
+        table { width: 100%; border-collapse: collapse; }
+        th, td { border-bottom: 1px solid #e2e8f0; text-align: left; padding: .35rem; font-size: .84rem; }
+        .meta { color: #334155; font-size: .86rem; }
+        @media (max-width: 900px) { .grid { grid-template-columns: 1fr; } }
+    </style>
+</head>
+<body>
+<main class="page-wrap section-stack">
+<header class="page-header">
+    <h1>Admin Module</h1>
+    <p>Webhook governance and user/role administration controls are active.</p>
+</header>
+
+<div class="grid">
+    <section class="card">
+        <h3>Register Webhook</h3>
+        <form method="post" th:action="@{/portal/admin/webhooks}">
+            <input type="hidden" th:name="${_csrf.parameterName}" th:value="${_csrf.token}">
+            <label>Location ID</label>
+            <input type="number" min="1" name="locationId" th:value="${registerWebhookForm.locationId}">
+            <label>Name</label>
+            <input name="name" th:value="${registerWebhookForm.name}">
+            <label>Callback URL</label>
+            <input name="callbackUrl" th:value="${registerWebhookForm.callbackUrl}">
+            <button class="btn btn-primary" type="submit">Register</button>
+        </form>
+
+        <h3>Check Delivery Eligibility</h3>
+        <form method="post" th:action="@{/portal/admin/webhooks/can-deliver}">
+            <input type="hidden" th:name="${_csrf.parameterName}" th:value="${_csrf.token}">
+            <label>Webhook ID</label>
+            <input type="number" min="1" name="webhookId" th:value="${deliveryCheckForm.webhookId}">
+            <button class="btn btn-alt" type="submit">Check</button>
+        </form>
+
+        <p class="meta" th:text="${'Sample nonce: ' + nonceSample}"></p>
+        <div th:if="${registerResult}" class="meta"><pre th:text="${registerResult}"></pre></div>
+        <div th:if="${deliveryCheckResult}" class="meta"><pre th:text="${deliveryCheckResult}"></pre></div>
+
+        <h3>Create User</h3>
+        <form method="post" th:action="@{/portal/admin/users}">
+            <input type="hidden" th:name="${_csrf.parameterName}" th:value="${_csrf.token}">
+            <label>Location ID (optional)</label>
+            <input type="number" min="1" name="locationId" th:value="${createUserForm.locationId}">
+            <label>Username</label>
+            <input name="username" th:value="${createUserForm.username}">
+            <label>Full Name</label>
+            <input name="fullName" th:value="${createUserForm.fullName}">
+            <label>Email</label>
+            <input name="email" th:value="${createUserForm.email}">
+            <label>Temporary Password</label>
+            <input type="password" name="password" th:value="${createUserForm.password}">
+            <label>Roles CSV (e.g. EMPLOYEE,MANAGER)</label>
+            <input name="rolesCsv" th:value="${createUserForm.rolesCsv}">
+            <label>
+                <input type="checkbox" name="active" value="true" th:checked="${createUserForm.active}"> Active
+            </label>
+            <button class="btn btn-primary" type="submit">Create User</button>
+        </form>
+
+        <h3>Update User Profile</h3>
+        <form method="post" th:action="@{/portal/admin/users/{userId}(userId=${updateUserForm.userId})}">
+            <input type="hidden" th:name="${_csrf.parameterName}" th:value="${_csrf.token}">
+            <label>User ID</label>
+            <input type="number" min="1" name="userId" th:value="${updateUserForm.userId}">
+            <label>Location ID (optional)</label>
+            <input type="number" min="1" name="locationId" th:value="${updateUserForm.locationId}">
+            <label>Full Name</label>
+            <input name="fullName" th:value="${updateUserForm.fullName}">
+            <label>Email</label>
+            <input name="email" th:value="${updateUserForm.email}">
+            <label>
+                <input type="checkbox" name="active" value="true" th:checked="${updateUserForm.active}"> Active
+            </label>
+            <button class="btn btn-alt" type="submit" formaction="/portal/admin/users/0" onclick="this.form.action='/portal/admin/users/' + this.form.userId.value;">Update User</button>
+        </form>
+
+        <h3>Assign or Remove Role</h3>
+        <form method="post" th:action="@{/portal/admin/users/0/roles/assign}">
+            <input type="hidden" th:name="${_csrf.parameterName}" th:value="${_csrf.token}">
+            <label>User ID</label>
+            <input type="number" min="1" name="userId">
+            <label>Role Code</label>
+            <input name="roleCode" th:value="${roleActionForm.roleCode}">
+            <button class="btn btn-primary" type="submit" formaction="/portal/admin/users/0/roles/assign" onclick="this.form.action='/portal/admin/users/' + this.form.userId.value + '/roles/assign';">Assign Role</button>
+            <button class="btn btn-alt" type="submit" formaction="/portal/admin/users/0/roles/remove" onclick="this.form.action='/portal/admin/users/' + this.form.userId.value + '/roles/remove';">Remove Role</button>
+        </form>
+
+        <div th:if="${userCreateResult}" class="meta"><pre th:text="${userCreateResult}"></pre></div>
+        <div th:if="${userUpdateResult}" class="meta"><pre th:text="${userUpdateResult}"></pre></div>
+        <div th:if="${roleActionResult}" class="meta"><pre th:text="${roleActionResult}"></pre></div>
+        <div th:if="${adminError}" class="alert alert-error" th:text="${adminError}"></div>
+        <div th:if="${adminSuccess}" class="alert alert-ok" th:text="${adminSuccess}"></div>
+    </section>
+
+    <section class="card">
+        <h3>Active Webhooks</h3>
+        <table>
+            <thead><tr><th>ID</th><th>Name</th><th>Location</th><th>Whitelisted IP</th><th>Created</th></tr></thead>
+            <tbody>
+            <tr th:each="w : ${webhooks}">
+                <td th:text="${w.id}"></td>
+                <td>
+                    <div th:text="${w.name}"></div>
+                    <div class="meta" th:text="${w.callback_url}"></div>
+                </td>
+                <td th:text="${w.location_id}"></td>
+                <td th:text="${w.whitelisted_ip}"></td>
+                <td th:text="${w.created_at}"></td>
+            </tr>
+            </tbody>
+        </table>
+
+        <h3>User Directory</h3>
+        <table>
+            <thead><tr><th>ID</th><th>User</th><th>Location</th><th>Status</th><th>Roles</th><th>Updated</th></tr></thead>
+            <tbody>
+            <tr th:each="u : ${users}">
+                <td th:text="${u.id}"></td>
+                <td>
+                    <div th:text="${u.username}"></div>
+                    <div class="meta" th:text="${u.full_name}"></div>
+                    <div class="meta" th:text="${u.email}"></div>
+                </td>
+                <td th:text="${u.location_code != null ? u.location_code : '-'}"></td>
+                <td th:text="${u.is_active ? 'ACTIVE' : 'INACTIVE'}"></td>
+                <td th:text="${u.role_codes}"></td>
+                <td th:text="${u.updated_at}"></td>
+            </tr>
+            </tbody>
+        </table>
+
+        <h3>Recent Traces (Local Store)</h3>
+        <table>
+            <thead><tr><th>ID</th><th>Trace/Span</th><th>Request</th><th>Status</th><th>Duration</th><th>At</th></tr></thead>
+            <tbody>
+            <tr th:each="t : ${traces}">
+                <td th:text="${t.id}"></td>
+                <td>
+                    <div th:text="${t.trace_id}"></div>
+                    <div class="meta" th:text="${t.span_id}"></div>
+                </td>
+                <td th:text="${t.method + ' ' + t.path}"></td>
+                <td th:text="${t.status_code}"></td>
+                <td th:text="${t.duration_ms + ' ms'}"></td>
+                <td th:text="${t.created_at}"></td>
+            </tr>
+            </tbody>
+        </table>
+    </section>
+</div>
+<a class="back-link" href="/portal">Back to dashboard</a>
+</main>
+</body>
+</html>

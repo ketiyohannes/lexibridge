@@ -1,0 +1,18 @@
+lexibridge:
+  security:
+    field-encryption-key: 1234567890abcdef1234567890abcdef
+  bootstrap:
+    enabled: false
+
+management:
+  prometheus:
+    metrics:
+      export:
+        enabled: true
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  endpoint:
+    prometheus:
+      enabled: true

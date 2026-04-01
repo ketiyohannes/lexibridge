@@ -1,0 +1,67 @@
+spring:
+  application:
+    name: lexibridge-operations-suite
+  datasource:
+    url: jdbc:mysql://${DB_HOST:mysql}:${DB_PORT:3306}/${DB_NAME:lexibridge}?createDatabaseIfNotExist=true&useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
+    username: ${DB_USER:lexibridge}
+    password: ${DB_PASSWORD:lexibridge}
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+    properties:
+      hibernate:
+        format_sql: true
+  flyway:
+    enabled: true
+    baseline-on-migrate: true
+  thymeleaf:
+    cache: false
+
+management:
+  prometheus:
+    metrics:
+      export:
+        enabled: true
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  endpoint:
+    prometheus:
+      enabled: true
+    health:
+      probes:
+        enabled: true
+
+server:
+  port: ${SERVER_PORT:8080}
+  servlet:
+    session:
+      timeout: 30m
+
+lexibridge:
+  security:
+    max-failed-attempts: 5
+    lockout-duration-minutes: 15
+    field-encryption-key: ${FIELD_ENCRYPTION_KEY:}
+    antivirus:
+      enabled: ${ANTIVIRUS_ENABLED:false}
+      fail-closed: ${ANTIVIRUS_FAIL_CLOSED:true}
+      mode: ${ANTIVIRUS_MODE:command}
+      command: ${ANTIVIRUS_COMMAND:clamscan}
+      tcp:
+        host: ${ANTIVIRUS_TCP_HOST:clamav}
+        port: ${ANTIVIRUS_TCP_PORT:3310}
+        timeout-seconds: ${ANTIVIRUS_TCP_TIMEOUT_SECONDS:10}
+  booking:
+    qr-secret: ${BOOKING_QR_SECRET:qr-demo-secret}
+  bootstrap:
+    enabled: ${BOOTSTRAP_ENABLED:false}
+    admin:
+      username: ${BOOTSTRAP_ADMIN_USERNAME:admin}
+      full-name: ${BOOTSTRAP_ADMIN_FULL_NAME:LexiBridge Admin}
+      password: ${BOOTSTRAP_ADMIN_PASSWORD:}
+    device:
+      client-key: ${BOOTSTRAP_DEVICE_CLIENT_KEY:demo-device}
+      shared-secret: ${BOOTSTRAP_DEVICE_SHARED_SECRET:}
