@@ -1,0 +1,92 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  backend-tests:
+    name: Backend Tests (Testcontainers)
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      FIELD_ENCRYPTION_KEY: 1234567890abcdef1234567890abcdef
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      - name: Verify Docker daemon
+        run: docker version
+
+      - name: Run Maven test suite on runner
+        run: mvn -B test
+
+  e2e-playwright:
+    name: E2E Playwright
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    needs: backend-tests
+    env:
+      CI: true
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Install npm dependencies
+        run: |
+          if [ -f package-lock.json ]; then
+            npm ci
+          else
+            npm install
+          fi
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+
+      - name: Start app stack
+        run: docker compose up --build -d
+
+      - name: Wait for app health
+        run: |
+          for i in $(seq 1 60); do
+            if curl -fsS http://localhost:8081/actuator/health >/dev/null; then
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "App health endpoint did not become ready in time" >&2
+          docker compose logs app || true
+          exit 1
+
+      - name: Run Playwright major flow
+        run: npx playwright test tests/e2e/major-flows.spec.ts
+
+      - name: Upload Playwright artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-artifacts
+          path: |
+            playwright-report/
+            test-results/
+
+      - name: Docker compose logs (failure only)
+        if: failure()
+        run: docker compose logs --no-color
+
+      - name: Stop app stack
+        if: always()
+        run: docker compose down -v --remove-orphans
