@@ -5,7 +5,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 MAVEN_IMAGE="maven:3.9.9-eclipse-temurin-21"
 M2_CACHE_VOLUME="${M2_CACHE_VOLUME:-lexibridge_m2_cache}"
 KEEP_STACK_UP="${KEEP_STACK_UP:-false}"
-TESTCONTAINERS_HOST_OVERRIDE_VALUE="${TESTCONTAINERS_HOST_OVERRIDE:-host.docker.internal}"
+TESTCONTAINERS_HOST_OVERRIDE_VALUE="${TESTCONTAINERS_HOST_OVERRIDE:-}"
 
 if [ ! -S /var/run/docker.sock ]; then
   echo "Docker socket not found at /var/run/docker.sock. Start Docker Desktop/Engine first." >&2
@@ -28,13 +28,23 @@ docker compose up --build -d
 docker volume create "$M2_CACHE_VOLUME" >/dev/null
 
 echo "[run_test] Running Maven tests in Docker..."
-docker run --rm \
-  -v "$ROOT_DIR:/workspace" \
-  -v "$M2_CACHE_VOLUME:/root/.m2" \
-  -v /var/run/docker.sock:/var/run/docker.sock \
-  -e DOCKER_HOST=unix:///var/run/docker.sock \
-  -e TESTCONTAINERS_HOST_OVERRIDE="$TESTCONTAINERS_HOST_OVERRIDE_VALUE" \
-  -w /workspace \
+DOCKER_RUN_ARGS=(
+  --rm
+  -v "$ROOT_DIR:/workspace"
+  -v "$M2_CACHE_VOLUME:/root/.m2"
+  -v /var/run/docker.sock:/var/run/docker.sock
+  -e DOCKER_HOST=unix:///var/run/docker.sock
+  -w /workspace
+)
+
+if [ -n "$TESTCONTAINERS_HOST_OVERRIDE_VALUE" ]; then
+  DOCKER_RUN_ARGS+=(
+    --add-host=host.docker.internal:host-gateway
+    -e TESTCONTAINERS_HOST_OVERRIDE="$TESTCONTAINERS_HOST_OVERRIDE_VALUE"
+  )
+fi
+
+docker run "${DOCKER_RUN_ARGS[@]}" \
   "$MAVEN_IMAGE" \
   mvn -B test
 
