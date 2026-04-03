@@ -241,7 +241,8 @@ public class ModerationRepository {
                            when mc.target_type = 'QNA' then cq.status
                            else null
                        end as target_status,
-                       (select count(*) from moderation_case_media mcm where mcm.case_id = mc.id) as case_media_count
+                       (select count(*) from moderation_case_media mcm where mcm.case_id = mc.id) as case_media_count,
+                       (select count(*) from community_target_media ctm where ctm.target_type = mc.target_type and ctm.target_id = mc.target_id) as target_media_count
                 from moderation_case mc
                 left join community_post cp on mc.target_type = 'POST' and cp.id = mc.target_id
                 left join community_comment cc on mc.target_type = 'COMMENT' and cc.id = mc.target_id
@@ -286,7 +287,8 @@ public class ModerationRepository {
                        when mc.target_type = 'QNA' then cq.status
                        else null
                    end as target_status,
-                   (select count(*) from moderation_case_media mcm where mcm.case_id = mc.id) as case_media_count
+                    (select count(*) from moderation_case_media mcm where mcm.case_id = mc.id) as case_media_count,
+                    (select count(*) from community_target_media ctm where ctm.target_type = mc.target_type and ctm.target_id = mc.target_id) as target_media_count
             from moderation_case mc
             left join community_post cp on mc.target_type = 'POST' and cp.id = mc.target_id
             left join community_comment cc on mc.target_type = 'COMMENT' and cc.id = mc.target_id
@@ -335,7 +337,8 @@ public class ModerationRepository {
                        when mc.target_type = 'QNA' then cq.status
                        else null
                    end as target_status,
-                   (select count(*) from moderation_case_media mcm where mcm.case_id = mc.id) as case_media_count
+                    (select count(*) from moderation_case_media mcm where mcm.case_id = mc.id) as case_media_count,
+                    (select count(*) from community_target_media ctm where ctm.target_type = mc.target_type and ctm.target_id = mc.target_id) as target_media_count
             from moderation_case mc
             left join community_post cp on mc.target_type = 'POST' and cp.id = mc.target_id
             left join community_comment cc on mc.target_type = 'COMMENT' and cc.id = mc.target_id
@@ -436,6 +439,31 @@ public class ModerationRepository {
         if ("QNA".equalsIgnoreCase(targetType)) {
             return jdbcTemplate.query(
                 "select location_id from community_qna where id = ?",
+                rs -> rs.next() ? (Long) rs.getObject(1) : null,
+                targetId
+            );
+        }
+        return null;
+    }
+
+    public Long authorForTarget(String targetType, long targetId) {
+        if ("POST".equalsIgnoreCase(targetType)) {
+            return jdbcTemplate.query(
+                "select author_user_id from community_post where id = ?",
+                rs -> rs.next() ? (Long) rs.getObject(1) : null,
+                targetId
+            );
+        }
+        if ("COMMENT".equalsIgnoreCase(targetType)) {
+            return jdbcTemplate.query(
+                "select author_user_id from community_comment where id = ?",
+                rs -> rs.next() ? (Long) rs.getObject(1) : null,
+                targetId
+            );
+        }
+        if ("QNA".equalsIgnoreCase(targetType)) {
+            return jdbcTemplate.query(
+                "select author_user_id from community_qna where id = ?",
                 rs -> rs.next() ? (Long) rs.getObject(1) : null,
                 targetId
             );
@@ -556,6 +584,75 @@ public class ModerationRepository {
                 return Map.of(
                     "id", rs.getLong("id"),
                     "case_id", rs.getLong("case_id"),
+                    "storage_path", rs.getString("storage_path"),
+                    "mime_type", rs.getString("mime_type"),
+                    "file_size_bytes", rs.getLong("file_size_bytes"),
+                    "checksum_sha256", rs.getString("checksum_sha256"),
+                    "created_by", rs.getLong("created_by"),
+                    "created_at", rs.getObject("created_at")
+                );
+            },
+            mediaId
+        );
+    }
+
+    public long insertTargetMedia(String targetType,
+                                  long targetId,
+                                  String storagePath,
+                                  String mimeType,
+                                  long fileSizeBytes,
+                                  String checksumSha256,
+                                  long createdBy) {
+        KeyHolder keyHolder = new GeneratedKeyHolder();
+        jdbcTemplate.update(connection -> {
+            PreparedStatement ps = connection.prepareStatement(
+                """
+                insert into community_target_media
+                (target_type, target_id, storage_path, mime_type, file_size_bytes, checksum_sha256, created_by)
+                values (?, ?, ?, ?, ?, ?, ?)
+                """,
+                Statement.RETURN_GENERATED_KEYS
+            );
+            ps.setString(1, targetType);
+            ps.setLong(2, targetId);
+            ps.setString(3, storagePath);
+            ps.setString(4, mimeType);
+            ps.setLong(5, fileSizeBytes);
+            ps.setString(6, checksumSha256);
+            ps.setLong(7, createdBy);
+            return ps;
+        }, keyHolder);
+        return keyHolder.getKey().longValue();
+    }
+
+    public List<Map<String, Object>> targetMedia(String targetType, long targetId) {
+        return jdbcTemplate.queryForList(
+            """
+            select id, target_type, target_id, storage_path, mime_type, file_size_bytes, checksum_sha256, created_by, created_at
+            from community_target_media
+            where target_type = ? and target_id = ?
+            order by id desc
+            """,
+            targetType,
+            targetId
+        );
+    }
+
+    public Map<String, Object> targetMediaById(long mediaId) {
+        return jdbcTemplate.query(
+            """
+            select id, target_type, target_id, storage_path, mime_type, file_size_bytes, checksum_sha256, created_by, created_at
+            from community_target_media
+            where id = ?
+            """,
+            rs -> {
+                if (!rs.next()) {
+                    return null;
+                }
+                return Map.of(
+                    "id", rs.getLong("id"),
+                    "target_type", rs.getString("target_type"),
+                    "target_id", rs.getLong("target_id"),
                     "storage_path", rs.getString("storage_path"),
                     "mime_type", rs.getString("mime_type"),
                     "file_size_bytes", rs.getLong("file_size_bytes"),

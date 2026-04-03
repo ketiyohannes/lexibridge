@@ -131,6 +131,15 @@
         </table>
 
         <h3>User Directory</h3>
+        <form method="post" th:action="@{/portal/admin/users/0/email/reveal}">
+            <input type="hidden" th:name="${_csrf.parameterName}" th:value="${_csrf.token}">
+            <label>User ID (for audited reveal)</label>
+            <input type="number" min="1" name="userId" th:value="${emailRevealForm.userId}">
+            <label>Reason for reveal (audited)</label>
+            <input name="reason" th:value="${emailRevealForm.reason}">
+            <button class="btn btn-alt" type="submit" formaction="/portal/admin/users/0/email/reveal" onclick="this.form.action='/portal/admin/users/' + this.form.userId.value + '/email/reveal';">Reveal Email</button>
+        </form>
+        <div th:if="${emailRevealResult}" class="meta"><pre th:text="${emailRevealResult}"></pre></div>
         <table>
             <thead><tr><th>ID</th><th>User</th><th>Location</th><th>Status</th><th>Roles</th><th>Updated</th></tr></thead>
             <tbody>

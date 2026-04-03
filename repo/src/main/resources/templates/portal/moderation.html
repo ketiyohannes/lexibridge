@@ -64,7 +64,7 @@
             <div class="json-box" th:if="${moderationCase['target_body']}">
                 <pre th:text="${#strings.abbreviate(moderationCase['target_body'], 180)}"></pre>
             </div>
-            <div class="meta" th:text="${'Case Media: ' + moderationCase.case_media_count}"></div>
+            <div class="meta" th:text="${'Target Media: ' + moderationCase.target_media_count + ' • Case Media: ' + moderationCase.case_media_count}"></div>
             <div><a th:href="@{/portal/moderation/cases/{caseId}(caseId=${moderationCase.id})}">Open review</a></div>
         </div>
 
@@ -124,6 +124,21 @@
                 <pre th:text="${selectedCase['target_body']}"></pre>
             </div>
             <div class="meta" th:if="${selectedCase['target_body'] == null and selectedCase['target_title'] == null}">No target artifact body was found for this case.</div>
+
+            <h4>Target Media</h4>
+            <table th:if="${selectedTargetMedia != null and !selectedTargetMedia.isEmpty()}">
+                <thead><tr><th>ID</th><th>MIME</th><th>Size</th><th>Created</th><th>Download</th></tr></thead>
+                <tbody>
+                <tr th:each="m : ${selectedTargetMedia}">
+                    <td th:text="${m.id}"></td>
+                    <td th:text="${m.mime_type}"></td>
+                    <td th:text="${m.file_size_bytes}"></td>
+                    <td th:text="${m.created_at}"></td>
+                    <td><a th:href="@{/api/v1/moderation/targets/{targetType}/{targetId}/media/{mediaId}/download(targetType=${selectedCase.target_type},targetId=${selectedCase.target_id},mediaId=${m.id})}">Download</a></td>
+                </tr>
+                </tbody>
+            </table>
+            <div class="meta" th:if="${selectedTargetMedia == null or selectedTargetMedia.isEmpty()}">No target media attached.</div>
 
             <h4>Case Media Context</h4>
             <table th:if="${selectedCaseMedia != null and !selectedCaseMedia.isEmpty()}">

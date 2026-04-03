@@ -3,10 +3,9 @@ name: lexibridge
 services:
   mysql:
     image: mysql:8.4
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
     container_name: lexibridge-mysql
     restart: unless-stopped
+    command: ["--log-bin-trust-function-creators=1"]
     environment:
       MYSQL_DATABASE: lexibridge
       MYSQL_USER: lexibridge

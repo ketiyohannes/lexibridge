@@ -21,6 +21,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -122,5 +123,63 @@ class ModerationServiceTest {
 
         assertEquals(88L, targetId);
         verify(moderationRepository).createCase(org.mockito.ArgumentMatchers.eq(1L), org.mockito.ArgumentMatchers.eq("POST"), org.mockito.ArgumentMatchers.eq(88L), org.mockito.ArgumentMatchers.anyList());
+    }
+
+    @Test
+    void addTargetMedia_shouldPersistCommunityTargetMedia() {
+        byte[] bytes = new byte[]{1, 2, 3};
+        when(moderationRepository.locationForTarget("POST", 44L)).thenReturn(1L);
+        when(mediaValidationService.validate(org.mockito.ArgumentMatchers.eq("post.png"), org.mockito.ArgumentMatchers.same(bytes)))
+            .thenReturn(new FileValidationResult(true, "image/png", "abc123", null, "clamav", "clean"));
+        when(moderationRepository.insertTargetMedia(
+            org.mockito.ArgumentMatchers.eq("POST"),
+            org.mockito.ArgumentMatchers.eq(44L),
+            org.mockito.ArgumentMatchers.anyString(),
+            org.mockito.ArgumentMatchers.eq("image/png"),
+            org.mockito.ArgumentMatchers.eq(3L),
+            org.mockito.ArgumentMatchers.eq("abc123"),
+            org.mockito.ArgumentMatchers.eq(7L)
+        )).thenReturn(9001L);
+
+        Map<String, Object> result = moderationService.addTargetMedia("post", 44L, "post.png", bytes, 7L);
+
+        assertEquals(9001L, result.get("mediaId"));
+        assertEquals("POST", result.get("targetType"));
+        verify(binaryStorageService).store(
+            org.mockito.ArgumentMatchers.anyString(),
+            org.mockito.ArgumentMatchers.eq("abc123"),
+            org.mockito.ArgumentMatchers.eq("image/png"),
+            org.mockito.ArgumentMatchers.same(bytes)
+        );
+    }
+
+    @Test
+    void assertTargetOwner_shouldRejectNonOwner() {
+        when(moderationRepository.authorForTarget("QNA", 55L)).thenReturn(99L);
+
+        assertThrows(
+            org.springframework.security.access.AccessDeniedException.class,
+            () -> moderationService.assertTargetOwner("qna", 55L, 12L)
+        );
+    }
+
+    @Test
+    void createPostTarget_shouldBlockWhenAuthorHasActiveSuspension() {
+        when(moderationRepository.hasActiveSuspension(4L)).thenReturn(true);
+
+        assertThrows(
+            org.springframework.security.access.AccessDeniedException.class,
+            () -> moderationService.createPostTarget(1L, 4L, "title", "body")
+        );
+
+        verify(auditLogService).logUserEvent(
+            org.mockito.ArgumentMatchers.eq(4L),
+            org.mockito.ArgumentMatchers.eq("SUSPENDED_CONTENT_POST_BLOCKED"),
+            org.mockito.ArgumentMatchers.eq("community_target"),
+            org.mockito.ArgumentMatchers.eq("NEW"),
+            org.mockito.ArgumentMatchers.eq(1L),
+            org.mockito.ArgumentMatchers.anyMap()
+        );
+        verify(moderationRepository, never()).createPost(org.mockito.ArgumentMatchers.anyLong(), org.mockito.ArgumentMatchers.anyLong(), org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
     }
 }

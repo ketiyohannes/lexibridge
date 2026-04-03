@@ -48,6 +48,7 @@ public class ModerationController {
         populateBaseModel(model);
         model.addAttribute("selectedCase", moderationService.caseDetails(caseId));
         model.addAttribute("selectedCaseMedia", moderationService.caseMedia(caseId));
+        model.addAttribute("selectedTargetMedia", moderationService.caseTargetMedia(caseId));
         model.addAttribute("createCaseForm", CreateCaseForm.defaults());
         model.addAttribute("reportForm", ReportForm.defaults());
 
@@ -81,6 +82,7 @@ public class ModerationController {
         model.addAttribute("moderationSuccess", "Case #" + caseId + " created and added to queue.");
         model.addAttribute("selectedCase", moderationService.caseDetails(caseId));
         model.addAttribute("selectedCaseMedia", moderationService.caseMedia(caseId));
+        model.addAttribute("selectedTargetMedia", moderationService.caseTargetMedia(caseId));
 
         ResolveCaseForm resolveCaseForm = ResolveCaseForm.defaults();
         resolveCaseForm.setCaseId(caseId);
@@ -104,6 +106,7 @@ public class ModerationController {
         if (validationError != null) {
             model.addAttribute("selectedCase", moderationService.caseDetails(caseId));
             model.addAttribute("selectedCaseMedia", moderationService.caseMedia(caseId));
+            model.addAttribute("selectedTargetMedia", moderationService.caseTargetMedia(caseId));
             model.addAttribute("moderationError", validationError);
             return "portal/moderation";
         }
@@ -120,6 +123,7 @@ public class ModerationController {
         );
         model.addAttribute("selectedCase", moderationService.caseDetails(caseId));
         model.addAttribute("selectedCaseMedia", moderationService.caseMedia(caseId));
+        model.addAttribute("selectedTargetMedia", moderationService.caseTargetMedia(caseId));
         model.addAttribute("resolutionResult", resolution);
         model.addAttribute("moderationSuccess", "Case #" + caseId + " resolved.");
         return "portal/moderation";

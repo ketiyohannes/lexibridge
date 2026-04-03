@@ -206,6 +206,143 @@ public class ModerationApiController {
             .body(binary.payload());
     }
 
+    @PostMapping("/targets/{targetType}/{targetId}/media")
+    @PreAuthorize("hasAnyRole('ADMIN','MODERATOR')")
+    public Map<String, Object> uploadTargetMedia(@PathVariable String targetType,
+                                                  @PathVariable long targetId,
+                                                  @RequestParam("file") MultipartFile file) throws IOException {
+        long locationId = moderationService.requireTargetLocation(targetType, targetId);
+        authorizationScopeService.assertLocationAccess(locationId);
+        return moderationService.addTargetMedia(
+            targetType,
+            targetId,
+            safeFilename(file, "target-media.bin"),
+            file.getBytes(),
+            authorizationScopeService.requireCurrentUserId()
+        );
+    }
+
+    @GetMapping("/targets/{targetType}/{targetId}/media")
+    @PreAuthorize("hasAnyRole('ADMIN','MODERATOR')")
+    public List<Map<String, Object>> listTargetMedia(@PathVariable String targetType,
+                                                      @PathVariable long targetId) {
+        long locationId = moderationService.requireTargetLocation(targetType, targetId);
+        authorizationScopeService.assertLocationAccess(locationId);
+        return moderationService.targetMedia(targetType, targetId);
+    }
+
+    @GetMapping("/targets/{targetType}/{targetId}/media/{mediaId}/download")
+    @PreAuthorize("hasAnyRole('ADMIN','MODERATOR')")
+    public ResponseEntity<byte[]> downloadTargetMedia(@PathVariable String targetType,
+                                                       @PathVariable long targetId,
+                                                       @PathVariable long mediaId) {
+        long locationId = moderationService.requireTargetLocation(targetType, targetId);
+        authorizationScopeService.assertLocationAccess(locationId);
+        var binary = moderationService.downloadTargetMedia(targetType, targetId, mediaId);
+        return ResponseEntity.ok()
+            .contentType(MediaType.parseMediaType(binary.mimeType()))
+            .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=target-media-" + mediaId)
+            .body(binary.payload());
+    }
+
+    @PostMapping("/community/posts/{postId}/media")
+    @PreAuthorize("isAuthenticated()")
+    public Map<String, Object> uploadOwnPostMedia(@PathVariable long postId,
+                                                   @RequestParam("file") MultipartFile file) throws IOException {
+        return uploadOwnTargetMedia("POST", postId, file, "post-media.bin");
+    }
+
+    @GetMapping("/community/posts/{postId}/media")
+    @PreAuthorize("isAuthenticated()")
+    public List<Map<String, Object>> listOwnPostMedia(@PathVariable long postId) {
+        return listOwnTargetMedia("POST", postId);
+    }
+
+    @GetMapping("/community/posts/{postId}/media/{mediaId}/download")
+    @PreAuthorize("isAuthenticated()")
+    public ResponseEntity<byte[]> downloadOwnPostMedia(@PathVariable long postId,
+                                                        @PathVariable long mediaId) {
+        return downloadOwnTargetMedia("POST", postId, mediaId);
+    }
+
+    @PostMapping("/community/comments/{commentId}/media")
+    @PreAuthorize("isAuthenticated()")
+    public Map<String, Object> uploadOwnCommentMedia(@PathVariable long commentId,
+                                                      @RequestParam("file") MultipartFile file) throws IOException {
+        return uploadOwnTargetMedia("COMMENT", commentId, file, "comment-media.bin");
+    }
+
+    @GetMapping("/community/comments/{commentId}/media")
+    @PreAuthorize("isAuthenticated()")
+    public List<Map<String, Object>> listOwnCommentMedia(@PathVariable long commentId) {
+        return listOwnTargetMedia("COMMENT", commentId);
+    }
+
+    @GetMapping("/community/comments/{commentId}/media/{mediaId}/download")
+    @PreAuthorize("isAuthenticated()")
+    public ResponseEntity<byte[]> downloadOwnCommentMedia(@PathVariable long commentId,
+                                                           @PathVariable long mediaId) {
+        return downloadOwnTargetMedia("COMMENT", commentId, mediaId);
+    }
+
+    @PostMapping("/community/qna/{qnaId}/media")
+    @PreAuthorize("isAuthenticated()")
+    public Map<String, Object> uploadOwnQnaMedia(@PathVariable long qnaId,
+                                                  @RequestParam("file") MultipartFile file) throws IOException {
+        return uploadOwnTargetMedia("QNA", qnaId, file, "qna-media.bin");
+    }
+
+    @GetMapping("/community/qna/{qnaId}/media")
+    @PreAuthorize("isAuthenticated()")
+    public List<Map<String, Object>> listOwnQnaMedia(@PathVariable long qnaId) {
+        return listOwnTargetMedia("QNA", qnaId);
+    }
+
+    @GetMapping("/community/qna/{qnaId}/media/{mediaId}/download")
+    @PreAuthorize("isAuthenticated()")
+    public ResponseEntity<byte[]> downloadOwnQnaMedia(@PathVariable long qnaId,
+                                                       @PathVariable long mediaId) {
+        return downloadOwnTargetMedia("QNA", qnaId, mediaId);
+    }
+
+    private Map<String, Object> uploadOwnTargetMedia(String targetType,
+                                                     long targetId,
+                                                     MultipartFile file,
+                                                     String fallbackFilename) throws IOException {
+        long actorUserId = authorizationScopeService.requireCurrentUserId();
+        long locationId = moderationService.requireTargetLocation(targetType, targetId);
+        authorizationScopeService.assertLocationAccess(locationId);
+        moderationService.assertTargetOwner(targetType, targetId, actorUserId);
+        return moderationService.addTargetMedia(targetType, targetId, safeFilename(file, fallbackFilename), file.getBytes(), actorUserId);
+    }
+
+    private List<Map<String, Object>> listOwnTargetMedia(String targetType, long targetId) {
+        long actorUserId = authorizationScopeService.requireCurrentUserId();
+        long locationId = moderationService.requireTargetLocation(targetType, targetId);
+        authorizationScopeService.assertLocationAccess(locationId);
+        moderationService.assertTargetOwner(targetType, targetId, actorUserId);
+        return moderationService.targetMedia(targetType, targetId);
+    }
+
+    private ResponseEntity<byte[]> downloadOwnTargetMedia(String targetType, long targetId, long mediaId) {
+        long actorUserId = authorizationScopeService.requireCurrentUserId();
+        long locationId = moderationService.requireTargetLocation(targetType, targetId);
+        authorizationScopeService.assertLocationAccess(locationId);
+        moderationService.assertTargetOwner(targetType, targetId, actorUserId);
+        var binary = moderationService.downloadTargetMedia(targetType, targetId, mediaId);
+        return ResponseEntity.ok()
+            .contentType(MediaType.parseMediaType(binary.mimeType()))
+            .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=target-media-" + mediaId)
+            .body(binary.payload());
+    }
+
+    private String safeFilename(MultipartFile file, String fallback) {
+        if (file.getOriginalFilename() == null || file.getOriginalFilename().isBlank()) {
+            return fallback;
+        }
+        return file.getOriginalFilename();
+    }
+
     public static class CreateModerationCaseCommand {
         @NotNull
         public Long locationId;

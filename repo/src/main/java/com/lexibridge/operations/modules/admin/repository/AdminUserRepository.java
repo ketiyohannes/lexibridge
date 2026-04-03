@@ -44,14 +44,19 @@ public class AdminUserRepository {
             limit ?
             """,
             limit
-        ).stream().map(row -> {
-            java.util.Map<String, Object> mapped = new java.util.LinkedHashMap<>(row);
-            Object encryptedEmail = row.get("email");
-            if (encryptedEmail != null) {
-                mapped.put("email", fieldEncryptionService.decryptString(String.valueOf(encryptedEmail)));
-            }
-            return mapped;
-        }).toList();
+        );
+    }
+
+    public Map<String, Object> userById(long userId) {
+        List<Map<String, Object>> rows = jdbcTemplate.queryForList(
+            """
+            select id, location_id, username, full_name, email, is_active
+            from app_user
+            where id = ?
+            """,
+            userId
+        );
+        return rows.isEmpty() ? null : rows.getFirst();
     }
 
     public long createUser(Long locationId,

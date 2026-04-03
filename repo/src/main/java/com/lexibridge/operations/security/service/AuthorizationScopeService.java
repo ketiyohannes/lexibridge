@@ -1,12 +1,9 @@
 package com.lexibridge.operations.security.service;
 
-import org.springframework.jdbc.core.JdbcTemplate;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.core.Authentication;
-import org.springframework.security.core.GrantedAuthority;
-import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 
 import java.util.Optional;
@@ -16,10 +13,13 @@ public class AuthorizationScopeService {
 
     private static final Logger log = LoggerFactory.getLogger(AuthorizationScopeService.class);
 
-    private final JdbcTemplate jdbcTemplate;
+    private final AuthorizationIdentityService authorizationIdentityService;
+    private final ScopeLookupService scopeLookupService;
 
-    public AuthorizationScopeService(JdbcTemplate jdbcTemplate) {
-        this.jdbcTemplate = jdbcTemplate;
+    public AuthorizationScopeService(AuthorizationIdentityService authorizationIdentityService,
+                                     ScopeLookupService scopeLookupService) {
+        this.authorizationIdentityService = authorizationIdentityService;
+        this.scopeLookupService = scopeLookupService;
     }
 
     public void assertLocationAccess(Long locationId) {
@@ -28,17 +28,13 @@ public class AuthorizationScopeService {
             throw new AccessDeniedException("Location is required.");
         }
 
-        if (isAdmin()) {
+        if (authorizationIdentityService.isAdmin()) {
             return;
         }
 
-        Authentication auth = requireAuthentication();
-        if (hasRole(auth, "ROLE_DEVICE_SERVICE")) {
-            Long deviceLocation = jdbcTemplate.query(
-                "select location_id from device_client where client_key = ? and status = 'ACTIVE'",
-                rs -> rs.next() ? rs.getLong(1) : null,
-                auth.getName()
-            );
+        Authentication auth = authorizationIdentityService.requireAuthentication();
+        if (authorizationIdentityService.hasRole(auth, "ROLE_DEVICE_SERVICE")) {
+            Long deviceLocation = authorizationIdentityService.activeDeviceLocation(auth.getName());
             if (deviceLocation == null || !deviceLocation.equals(locationId)) {
                 log.warn("Location scope denied for device client '{}' on location {}", auth.getName(), locationId);
                 throw new AccessDeniedException("Requested location is outside device scope.");
@@ -46,11 +42,7 @@ public class AuthorizationScopeService {
             return;
         }
 
-        Long userLocation = jdbcTemplate.query(
-            "select location_id from app_user where lower(username) = lower(?) and is_active = true",
-            rs -> rs.next() ? rs.getLong(1) : null,
-            auth.getName()
-        );
+        Long userLocation = authorizationIdentityService.activeUserLocation(auth.getName());
         if (userLocation == null || !userLocation.equals(locationId)) {
             log.warn("Location scope denied for user '{}' on location {}", auth.getName(), locationId);
             throw new AccessDeniedException("Requested location is outside user scope.");
@@ -63,22 +55,14 @@ public class AuthorizationScopeService {
             throw new AccessDeniedException("Actor user is required.");
         }
 
-        if (isAdmin()) {
+        if (authorizationIdentityService.isAdmin()) {
             return;
         }
 
-        Authentication auth = requireAuthentication();
-        if (hasRole(auth, "ROLE_DEVICE_SERVICE")) {
-            Long actorLocation = jdbcTemplate.query(
-                "select location_id from app_user where id = ? and is_active = true",
-                rs -> rs.next() ? (Long) rs.getObject(1) : null,
-                actorUserId
-            );
-            Long deviceLocation = jdbcTemplate.query(
-                "select location_id from device_client where client_key = ? and status = 'ACTIVE'",
-                rs -> rs.next() ? (Long) rs.getObject(1) : null,
-                auth.getName()
-            );
+        Authentication auth = authorizationIdentityService.requireAuthentication();
+        if (authorizationIdentityService.hasRole(auth, "ROLE_DEVICE_SERVICE")) {
+            Long actorLocation = scopeLookupService.activeUserLocationById(actorUserId);
+            Long deviceLocation = authorizationIdentityService.activeDeviceLocation(auth.getName());
             if (actorLocation == null || deviceLocation == null || !deviceLocation.equals(actorLocation)) {
                 log.warn("Actor scope denied for device '{}' to actorUserId {}", auth.getName(), actorUserId);
                 throw new AccessDeniedException("Actor user is outside device location scope.");
@@ -86,11 +70,7 @@ public class AuthorizationScopeService {
             return;
         }
 
-        Long currentUserId = jdbcTemplate.query(
-            "select id from app_user where lower(username) = lower(?) and is_active = true",
-            rs -> rs.next() ? rs.getLong(1) : null,
-            auth.getName()
-        );
+        Long currentUserId = authorizationIdentityService.activeUserId(auth.getName());
         if (currentUserId == null || !currentUserId.equals(actorUserId)) {
             log.warn("Actor scope denied: principal '{}' does not match actorUserId {}", auth.getName(), actorUserId);
             throw new AccessDeniedException("Actor user does not match authenticated principal.");
@@ -98,27 +78,11 @@ public class AuthorizationScopeService {
     }
 
     public long requireCurrentUserId() {
-        Authentication auth = requireAuthentication();
-        if (hasRole(auth, "ROLE_DEVICE_SERVICE")) {
-            throw new AccessDeniedException("Device clients do not map to a human user ID.");
-        }
-        Long currentUserId = jdbcTemplate.query(
-            "select id from app_user where lower(username) = lower(?) and is_active = true",
-            rs -> rs.next() ? rs.getLong(1) : null,
-            auth.getName()
-        );
-        if (currentUserId == null) {
-            throw new AccessDeniedException("Authenticated user not found.");
-        }
-        return currentUserId;
+        return authorizationIdentityService.requireCurrentUserId();
     }
 
     public void assertBookingAccess(long bookingOrderId) {
-        Long locationId = jdbcTemplate.query(
-            "select location_id from booking_order where id = ?",
-            rs -> rs.next() ? (Long) rs.getObject(1) : null,
-            bookingOrderId
-        );
+        Long locationId = scopeLookupService.bookingLocation(bookingOrderId);
         if (locationId == null) {
             log.warn("Booking scope denied: bookingOrderId {} not found", bookingOrderId);
             throw new AccessDeniedException("Booking order not found.");
@@ -127,17 +91,7 @@ public class AuthorizationScopeService {
     }
 
     public void assertRefundScope(long refundId) {
-        Long locationId = jdbcTemplate.query(
-            """
-            select bo.location_id
-            from refund_request rr
-            join tender_entry te on te.id = rr.tender_entry_id
-            join booking_order bo on bo.id = te.booking_order_id
-            where rr.id = ?
-            """,
-            rs -> rs.next() ? (Long) rs.getObject(1) : null,
-            refundId
-        );
+        Long locationId = scopeLookupService.refundLocation(refundId);
         if (locationId == null) {
             log.warn("Refund scope denied: refundId {} not found", refundId);
             throw new AccessDeniedException("Refund request not found.");
@@ -146,11 +100,7 @@ public class AuthorizationScopeService {
     }
 
     public void assertReconciliationRunScope(long runId) {
-        Long locationId = jdbcTemplate.query(
-            "select location_id from reconciliation_run where id = ?",
-            rs -> rs.next() ? (Long) rs.getObject(1) : null,
-            runId
-        );
+        Long locationId = scopeLookupService.reconciliationRunLocation(runId);
         if (locationId == null) {
             log.warn("Reconciliation run scope denied: runId {} not found", runId);
             throw new AccessDeniedException("Reconciliation run not found.");
@@ -159,11 +109,7 @@ public class AuthorizationScopeService {
     }
 
     public void assertContentItemScope(long contentItemId) {
-        Long locationId = jdbcTemplate.query(
-            "select location_id from content_item where id = ?",
-            rs -> rs.next() ? (Long) rs.getObject(1) : null,
-            contentItemId
-        );
+        Long locationId = scopeLookupService.contentItemLocation(contentItemId);
         if (locationId == null) {
             log.warn("Content item scope denied: contentItemId {} not found", contentItemId);
             throw new AccessDeniedException("Content item not found.");
@@ -172,14 +118,10 @@ public class AuthorizationScopeService {
     }
 
     public void assertLeaveRequestRequester(long leaveRequestId) {
-        if (isAdmin()) {
+        if (authorizationIdentityService.isAdmin()) {
             return;
         }
-        Long requesterId = jdbcTemplate.query(
-            "select requester_user_id from leave_request where id = ?",
-            rs -> rs.next() ? (Long) rs.getObject(1) : null,
-            leaveRequestId
-        );
+        Long requesterId = scopeLookupService.leaveRequester(leaveRequestId);
         if (requesterId == null) {
             log.warn("Leave requester scope denied: leaveRequestId {} not found", leaveRequestId);
             throw new AccessDeniedException("Leave request not found.");
@@ -188,15 +130,11 @@ public class AuthorizationScopeService {
     }
 
     public void assertLeaveRequestReadAccess(long leaveRequestId) {
-        if (isAdmin()) {
+        if (authorizationIdentityService.isAdmin()) {
             return;
         }
         long currentUserId = requireCurrentUserId();
-        Long requesterId = jdbcTemplate.query(
-            "select requester_user_id from leave_request where id = ?",
-            rs -> rs.next() ? (Long) rs.getObject(1) : null,
-            leaveRequestId
-        );
+        Long requesterId = scopeLookupService.leaveRequester(leaveRequestId);
         if (requesterId == null) {
             log.warn("Leave read scope denied: leaveRequestId {} not found", leaveRequestId);
             throw new AccessDeniedException("Leave request not found.");
@@ -204,19 +142,7 @@ public class AuthorizationScopeService {
         if (requesterId.equals(currentUserId)) {
             return;
         }
-        Integer activeApproverTasks = jdbcTemplate.queryForObject(
-            """
-            select count(*)
-            from approval_task
-            where leave_request_id = ?
-              and approver_user_id = ?
-              and status in ('PENDING', 'OVERDUE')
-            """,
-            Integer.class,
-            leaveRequestId,
-            currentUserId
-        );
-        if (activeApproverTasks != null && activeApproverTasks > 0) {
+        if (scopeLookupService.activeApproverTaskCount(leaveRequestId, currentUserId) > 0) {
             return;
         }
         log.warn("Leave read scope denied: user {} is neither requester nor active approver for request {}", currentUserId, leaveRequestId);
@@ -224,14 +150,10 @@ public class AuthorizationScopeService {
     }
 
     public void assertApprovalTaskApprover(long approvalTaskId) {
-        if (isAdmin()) {
+        if (authorizationIdentityService.isAdmin()) {
             return;
         }
-        Long approverId = jdbcTemplate.query(
-            "select approver_user_id from approval_task where id = ?",
-            rs -> rs.next() ? (Long) rs.getObject(1) : null,
-            approvalTaskId
-        );
+        Long approverId = scopeLookupService.approvalTaskApprover(approvalTaskId);
         if (approverId == null) {
             log.warn("Approval task scope denied: approvalTaskId {} not found", approvalTaskId);
             throw new AccessDeniedException("Approval task not found.");
@@ -240,16 +162,7 @@ public class AuthorizationScopeService {
     }
 
     public void assertTenderLocationScope(long tenderEntryId) {
-        Long locationId = jdbcTemplate.query(
-            """
-            select bo.location_id
-            from tender_entry te
-            join booking_order bo on bo.id = te.booking_order_id
-            where te.id = ?
-            """,
-            rs -> rs.next() ? (Long) rs.getObject(1) : null,
-            tenderEntryId
-        );
+        Long locationId = scopeLookupService.tenderLocation(tenderEntryId);
         if (locationId == null) {
             log.warn("Tender location scope denied: tenderEntryId {} not found", tenderEntryId);
             throw new AccessDeniedException("Tender entry not found.");
@@ -258,16 +171,7 @@ public class AuthorizationScopeService {
     }
 
     public void assertReconciliationExceptionScope(long exceptionId) {
-        Long locationId = jdbcTemplate.query(
-            """
-            select rr.location_id
-            from reconciliation_exception re
-            join reconciliation_run rr on rr.id = re.run_id
-            where re.id = ?
-            """,
-            rs -> rs.next() ? (Long) rs.getObject(1) : null,
-            exceptionId
-        );
+        Long locationId = scopeLookupService.reconciliationExceptionLocation(exceptionId);
         if (locationId == null) {
             log.warn("Reconciliation exception scope denied: exceptionId {} not found", exceptionId);
             throw new AccessDeniedException("Reconciliation exception not found.");
@@ -276,11 +180,7 @@ public class AuthorizationScopeService {
     }
 
     public void assertModerationCaseScope(long caseId) {
-        Long locationId = jdbcTemplate.query(
-            "select location_id from moderation_case where id = ?",
-            rs -> rs.next() ? (Long) rs.getObject(1) : null,
-            caseId
-        );
+        Long locationId = scopeLookupService.moderationCaseLocation(caseId);
         if (locationId == null) {
             log.warn("Moderation case scope denied: caseId {} not found", caseId);
             throw new AccessDeniedException("Moderation case not found.");
@@ -289,11 +189,7 @@ public class AuthorizationScopeService {
     }
 
     public void assertUserReportScope(long reportId) {
-        Long locationId = jdbcTemplate.query(
-            "select location_id from user_report where id = ?",
-            rs -> rs.next() ? (Long) rs.getObject(1) : null,
-            reportId
-        );
+        Long locationId = scopeLookupService.userReportLocation(reportId);
         if (locationId == null) {
             log.warn("User report scope denied: reportId {} not found", reportId);
             throw new AccessDeniedException("User report not found.");
@@ -302,45 +198,15 @@ public class AuthorizationScopeService {
     }
 
     public Optional<Long> currentLocationScope() {
-        Authentication auth = requireAuthentication();
-        if (hasRole(auth, "ROLE_ADMIN")) {
+        Authentication auth = authorizationIdentityService.requireAuthentication();
+        if (authorizationIdentityService.hasRole(auth, "ROLE_ADMIN")) {
             return Optional.empty();
         }
-        if (hasRole(auth, "ROLE_DEVICE_SERVICE")) {
-            Long deviceLocation = jdbcTemplate.query(
-                "select location_id from device_client where client_key = ? and status = 'ACTIVE'",
-                rs -> rs.next() ? (Long) rs.getObject(1) : null,
-                auth.getName()
-            );
+        if (authorizationIdentityService.hasRole(auth, "ROLE_DEVICE_SERVICE")) {
+            Long deviceLocation = authorizationIdentityService.activeDeviceLocation(auth.getName());
             return Optional.ofNullable(deviceLocation);
         }
-        Long userLocation = jdbcTemplate.query(
-            "select location_id from app_user where lower(username)=lower(?) and is_active=true",
-            rs -> rs.next() ? (Long) rs.getObject(1) : null,
-            auth.getName()
-        );
+        Long userLocation = authorizationIdentityService.activeUserLocation(auth.getName());
         return Optional.ofNullable(userLocation);
-    }
-
-    private boolean isAdmin() {
-        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
-        return auth != null && hasRole(auth, "ROLE_ADMIN");
-    }
-
-    private Authentication requireAuthentication() {
-        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
-        if (auth == null || !auth.isAuthenticated()) {
-            throw new AccessDeniedException("Authentication is required.");
-        }
-        return auth;
-    }
-
-    private boolean hasRole(Authentication auth, String role) {
-        for (GrantedAuthority authority : auth.getAuthorities()) {
-            if (role.equals(authority.getAuthority())) {
-                return true;
-            }
-        }
-        return false;
     }
 }

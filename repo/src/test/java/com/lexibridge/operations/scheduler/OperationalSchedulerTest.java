@@ -64,7 +64,9 @@ class OperationalSchedulerTest {
         verify(paymentsService).runDailyReconciliation(org.mockito.ArgumentMatchers.eq(1L), org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.eq(1L));
         verify(paymentsService).runDailyReconciliation(org.mockito.ArgumentMatchers.eq(2L), org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.eq(1L));
         verify(operationalAlertService).evaluateAlerts();
+        verify(retentionService).purgeExpiredAuditRedactionEvents();
         verify(retentionService).purgeExpiredAuditLogs();
         verify(retentionService).purgeExpiredReconciliationExceptions();
+        verify(retentionService).purgeExpiredReconciliationRuns();
     }
 }

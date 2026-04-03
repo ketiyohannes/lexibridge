@@ -54,7 +54,8 @@ class ComplianceAndWorkflowIntegrationTest {
     static final MySQLContainer<?> MYSQL = new MySQLContainer<>("mysql:8.4")
         .withDatabaseName("lexibridge")
         .withUsername("lexibridge")
-        .withPassword("lexibridge");
+        .withPassword("lexibridge")
+        .withCommand("--log-bin-trust-function-creators=1");
 
     @DynamicPropertySource
     static void configure(DynamicPropertyRegistry registry) {
@@ -402,6 +403,7 @@ class ComplianceAndWorkflowIntegrationTest {
             "manually flagged"
         ));
 
+        moderationService.addTargetMedia("POST", postId, "target.png", uniquePngBytes(), authorId);
         moderationService.addCaseMedia(caseId, "artifact.png", pngBytesFourthVariant(), authorId);
 
         Map<String, Object> row = moderationService.recentCases(1L, 100).stream()
@@ -414,6 +416,7 @@ class ComplianceAndWorkflowIntegrationTest {
         assertEquals(authorId, ((Number) row.get("target_author_user_id")).longValue());
         assertEquals("PUBLISHED", row.get("target_status"));
         assertEquals(1, ((Number) row.get("case_media_count")).intValue());
+        assertEquals(1, ((Number) row.get("target_media_count")).intValue());
 
         Map<String, Object> detail = moderationService.caseDetails(caseId);
         assertEquals(title, detail.get("target_title"));
@@ -421,6 +424,79 @@ class ComplianceAndWorkflowIntegrationTest {
         assertEquals(authorId, ((Number) detail.get("target_author_user_id")).longValue());
         assertEquals("PUBLISHED", detail.get("target_status"));
         assertEquals(1, ((Number) detail.get("case_media_count")).intValue());
+        assertEquals(1, ((Number) detail.get("target_media_count")).intValue());
+    }
+
+    @Test
+    void moderationTargetMediaLifecycle_shouldSupportPostCommentAndQna() {
+        long authorId = ensureUser("target-media-author", 1L);
+
+        long postId = moderationService.createPostTarget(1L, authorId, "post-with-media", "body");
+        byte[] postBytes = uniquePngBytes();
+        moderationService.addTargetMedia("POST", postId, "post.png", postBytes, authorId);
+        long postMediaId = ((Number) jdbcTemplate.queryForObject(
+            "select id from community_target_media where target_type = 'POST' and target_id = ? order by id desc limit 1",
+            Long.class,
+            postId
+        )).longValue();
+        byte[] postDownloaded = moderationService.downloadTargetMedia("POST", postId, postMediaId).payload();
+        assertTrue(java.util.Arrays.equals(postBytes, postDownloaded));
+
+        long commentId = moderationService.createCommentTarget(1L, postId, authorId, "comment body");
+        byte[] commentBytes = uniquePngBytes();
+        moderationService.addTargetMedia("COMMENT", commentId, "comment.png", commentBytes, authorId);
+        long commentMediaId = ((Number) jdbcTemplate.queryForObject(
+            "select id from community_target_media where target_type = 'COMMENT' and target_id = ? order by id desc limit 1",
+            Long.class,
+            commentId
+        )).longValue();
+        byte[] commentDownloaded = moderationService.downloadTargetMedia("COMMENT", commentId, commentMediaId).payload();
+        assertTrue(java.util.Arrays.equals(commentBytes, commentDownloaded));
+
+        long qnaId = moderationService.createQnaTarget(1L, authorId, "question", "answer");
+        byte[] qnaBytes = uniquePngBytes();
+        moderationService.addTargetMedia("QNA", qnaId, "qna.png", qnaBytes, authorId);
+        long qnaMediaId = ((Number) jdbcTemplate.queryForObject(
+            "select id from community_target_media where target_type = 'QNA' and target_id = ? order by id desc limit 1",
+            Long.class,
+            qnaId
+        )).longValue();
+        byte[] qnaDownloaded = moderationService.downloadTargetMedia("QNA", qnaId, qnaMediaId).payload();
+        assertTrue(java.util.Arrays.equals(qnaBytes, qnaDownloaded));
+    }
+
+    @Test
+    void moderationPosting_shouldRejectUserWithActiveSuspension() {
+        long suspendedAuthorId = ensureUser("suspended-author", 1L);
+        String blockedTitle = "blocked-post-" + UUID.randomUUID().toString().substring(0, 8);
+        jdbcTemplate.update(
+            """
+            insert into user_penalty (user_id, penalty_type, start_at, end_at, reason_text, appeal_note, created_by)
+            values (?, 'SUSPENSION_30_DAYS', date_sub(current_timestamp, interval 1 day), date_add(current_timestamp, interval 7 day), 'active suspension', 'integration test', ?)
+            """,
+            suspendedAuthorId,
+            suspendedAuthorId
+        );
+
+        assertThrows(
+            org.springframework.security.access.AccessDeniedException.class,
+            () -> moderationService.createPostTarget(1L, suspendedAuthorId, blockedTitle, "blocked body")
+        );
+
+        Integer postCount = jdbcTemplate.queryForObject(
+            "select count(*) from community_post where author_user_id = ? and title = ?",
+            Integer.class,
+            suspendedAuthorId,
+            blockedTitle
+        );
+        assertEquals(0, postCount);
+
+        Integer blockedAuditCount = jdbcTemplate.queryForObject(
+            "select count(*) from audit_log where actor_user_id = ? and event_type = 'SUSPENDED_CONTENT_POST_BLOCKED'",
+            Integer.class,
+            suspendedAuthorId
+        );
+        assertTrue(blockedAuditCount != null && blockedAuditCount > 0);
     }
 
     @Test

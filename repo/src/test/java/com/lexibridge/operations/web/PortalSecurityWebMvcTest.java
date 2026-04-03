@@ -476,6 +476,31 @@ class PortalSecurityWebMvcTest {
             .andExpect(status().isForbidden());
     }
 
+    @Test
+    @WithMockUser(roles = "ADMIN")
+    void adminEmailReveal_shouldAllowAdminWithCsrf() throws Exception {
+        when(adminUserManagementService.revealUserEmail(anyLong(), anyString(), anyLong()))
+            .thenReturn(Map.of("userId", 2L, "email", "user@example.com"));
+
+        mockMvc.perform(
+                post("/portal/admin/users/2/email/reveal")
+                    .with(csrf())
+                    .param("reason", "Compliance review")
+            )
+            .andExpect(status().isOk());
+    }
+
+    @Test
+    @WithMockUser(roles = "MODERATOR")
+    void adminEmailReveal_shouldBlockNonAdminRole() throws Exception {
+        mockMvc.perform(
+                post("/portal/admin/users/2/email/reveal")
+                    .with(csrf())
+                    .param("reason", "Compliance review")
+            )
+            .andExpect(status().isForbidden());
+    }
+
     @TestConfiguration
     @EnableMethodSecurity
     static class TestSecurityConfig {

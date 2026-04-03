@@ -18,9 +18,11 @@ class RetentionServiceTest {
 
     @Test
     void purgeMethods_shouldReturnDeletedCounts() {
-        when(jdbcTemplate.update(anyString())).thenReturn(3).thenReturn(2);
+        when(jdbcTemplate.update(anyString())).thenReturn(4).thenReturn(3).thenReturn(2).thenReturn(1);
         RetentionService service = new RetentionService(jdbcTemplate);
+        assertEquals(4, service.purgeExpiredAuditRedactionEvents());
         assertEquals(3, service.purgeExpiredAuditLogs());
         assertEquals(2, service.purgeExpiredReconciliationExceptions());
+        assertEquals(1, service.purgeExpiredReconciliationRuns());
     }
 }

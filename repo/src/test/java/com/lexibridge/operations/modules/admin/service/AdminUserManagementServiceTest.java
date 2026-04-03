@@ -3,6 +3,7 @@ package com.lexibridge.operations.modules.admin.service;
 import com.lexibridge.operations.governance.AuditLogService;
 import com.lexibridge.operations.modules.admin.repository.AdminUserRepository;
 import com.lexibridge.operations.security.privacy.FieldEncryptionService;
+import com.lexibridge.operations.security.privacy.PiiMaskingService;
 import com.lexibridge.operations.security.service.PasswordPolicyValidator;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -37,6 +38,8 @@ class AdminUserManagementServiceTest {
     private AuditLogService auditLogService;
     @Mock
     private FieldEncryptionService fieldEncryptionService;
+    @Mock
+    private PiiMaskingService piiMaskingService;
 
     private AdminUserManagementService service;
 
@@ -47,7 +50,8 @@ class AdminUserManagementServiceTest {
             passwordPolicyValidator,
             passwordEncoder,
             auditLogService,
-            fieldEncryptionService
+            fieldEncryptionService,
+            piiMaskingService
         );
     }
 
@@ -93,17 +97,37 @@ class AdminUserManagementServiceTest {
     }
 
     @Test
-    void users_shouldDecryptEmailBeforeReturning() {
+    void users_shouldMaskPiiBeforeReturning() {
         when(adminUserRepository.usersWithRoles(100)).thenReturn(List.of(Map.of(
             "id", 7L,
             "username", "managed.user",
+            "full_name", "Managed User",
             "email", "enc:abc",
             "role_codes", "EMPLOYEE"
         )));
         when(fieldEncryptionService.decryptString("enc:abc")).thenReturn("managed@example.com");
+        when(piiMaskingService.maskEmail("managed@example.com")).thenReturn("m***@example.com");
+        when(piiMaskingService.maskName("Managed User")).thenReturn("M**** U***");
 
         List<Map<String, Object>> users = service.users(100);
 
-        assertEquals("managed@example.com", users.getFirst().get("email"));
+        assertEquals("m***@example.com", users.getFirst().get("email"));
+        assertEquals("M**** U***", users.getFirst().get("full_name"));
+    }
+
+    @Test
+    void revealUserEmail_shouldRequireReasonAndAudit() {
+        when(adminUserRepository.userById(9L)).thenReturn(Map.of(
+            "id", 9L,
+            "location_id", 1L,
+            "username", "managed.user",
+            "email", "enc:abc"
+        ));
+        when(fieldEncryptionService.decryptString("enc:abc")).thenReturn("managed@example.com");
+
+        Map<String, Object> result = service.revealUserEmail(9L, "Compliance review", 3L);
+
+        assertEquals("managed@example.com", result.get("email"));
+        verify(auditLogService).logUserEvent(eq(3L), eq("ADMIN_USER_EMAIL_REVEALED"), eq("app_user"), eq("9"), eq(1L), any());
     }
 }

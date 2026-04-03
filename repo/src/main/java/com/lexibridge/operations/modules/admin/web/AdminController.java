@@ -3,7 +3,6 @@ package com.lexibridge.operations.modules.admin.web;
 import com.lexibridge.operations.modules.admin.service.WebhookSecurityService;
 import com.lexibridge.operations.modules.admin.service.AdminUserManagementService;
 import com.lexibridge.operations.monitoring.TracePersistenceService;
-import com.lexibridge.operations.security.privacy.PiiMaskingService;
 import com.lexibridge.operations.security.service.AuthorizationScopeService;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
@@ -13,7 +12,6 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 
 import java.util.Arrays;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -23,18 +21,15 @@ public class AdminController {
     private final WebhookSecurityService webhookSecurityService;
     private final AdminUserManagementService adminUserManagementService;
     private final TracePersistenceService tracePersistenceService;
-    private final PiiMaskingService piiMaskingService;
     private final AuthorizationScopeService authorizationScopeService;
 
     public AdminController(WebhookSecurityService webhookSecurityService,
                            AdminUserManagementService adminUserManagementService,
                            TracePersistenceService tracePersistenceService,
-                           PiiMaskingService piiMaskingService,
                            AuthorizationScopeService authorizationScopeService) {
         this.webhookSecurityService = webhookSecurityService;
         this.adminUserManagementService = adminUserManagementService;
         this.tracePersistenceService = tracePersistenceService;
-        this.piiMaskingService = piiMaskingService;
         this.authorizationScopeService = authorizationScopeService;
     }
 
@@ -56,6 +51,9 @@ public class AdminController {
         if (!model.containsAttribute("roleActionForm")) {
             model.addAttribute("roleActionForm", RoleActionForm.defaults());
         }
+        if (!model.containsAttribute("emailRevealForm")) {
+            model.addAttribute("emailRevealForm", EmailRevealForm.defaults());
+        }
         return "portal/admin";
     }
 
@@ -67,6 +65,7 @@ public class AdminController {
         model.addAttribute("createUserForm", CreateUserForm.defaults());
         model.addAttribute("updateUserForm", UpdateUserForm.defaults());
         model.addAttribute("roleActionForm", RoleActionForm.defaults());
+        model.addAttribute("emailRevealForm", EmailRevealForm.defaults());
 
         if (form.getLocationId() == null || form.getLocationId() <= 0 || form.getName() == null || form.getName().isBlank() || form.getCallbackUrl() == null || form.getCallbackUrl().isBlank()) {
             model.addAttribute("adminError", "Location, name, and callback URL are required.");
@@ -94,6 +93,7 @@ public class AdminController {
         model.addAttribute("createUserForm", CreateUserForm.defaults());
         model.addAttribute("updateUserForm", UpdateUserForm.defaults());
         model.addAttribute("roleActionForm", RoleActionForm.defaults());
+        model.addAttribute("emailRevealForm", EmailRevealForm.defaults());
 
         if (form.getWebhookId() == null || form.getWebhookId() <= 0) {
             model.addAttribute("adminError", "Webhook ID must be a positive number.");
@@ -118,6 +118,7 @@ public class AdminController {
         model.addAttribute("createUserForm", form);
         model.addAttribute("updateUserForm", UpdateUserForm.defaults());
         model.addAttribute("roleActionForm", RoleActionForm.defaults());
+        model.addAttribute("emailRevealForm", EmailRevealForm.defaults());
 
         if (form.getUsername() == null || form.getUsername().isBlank() ||
             form.getFullName() == null || form.getFullName().isBlank() ||
@@ -155,6 +156,7 @@ public class AdminController {
         model.addAttribute("createUserForm", CreateUserForm.defaults());
         model.addAttribute("updateUserForm", form);
         model.addAttribute("roleActionForm", RoleActionForm.defaults());
+        model.addAttribute("emailRevealForm", EmailRevealForm.defaults());
 
         if (form.getFullName() == null || form.getFullName().isBlank()) {
             model.addAttribute("adminError", "Full name is required.");
@@ -202,6 +204,7 @@ public class AdminController {
         model.addAttribute("createUserForm", CreateUserForm.defaults());
         model.addAttribute("updateUserForm", UpdateUserForm.defaults());
         model.addAttribute("roleActionForm", form);
+        model.addAttribute("emailRevealForm", EmailRevealForm.defaults());
 
         if (form.getRoleCode() == null || form.getRoleCode().isBlank()) {
             model.addAttribute("adminError", "Role code is required.");
@@ -220,26 +223,38 @@ public class AdminController {
         return "portal/admin";
     }
 
-    private void populateModel(Model model) {
-        model.addAttribute("webhooks", webhookSecurityService.activeWebhooks());
-        model.addAttribute("users", maskedUsers(adminUserManagementService.users(100)));
-        model.addAttribute("traces", tracePersistenceService.latest(100));
-        model.addAttribute("nonceSample", webhookSecurityService.generateNonce());
+    @PostMapping("/portal/admin/users/{userId}/email/reveal")
+    public String revealUserEmail(@PathVariable long userId,
+                                  @ModelAttribute EmailRevealForm form,
+                                  Model model) {
+        populateModel(model);
+        model.addAttribute("registerWebhookForm", RegisterWebhookForm.defaults());
+        model.addAttribute("deliveryCheckForm", DeliveryCheckForm.defaults());
+        model.addAttribute("createUserForm", CreateUserForm.defaults());
+        model.addAttribute("updateUserForm", UpdateUserForm.defaults());
+        model.addAttribute("roleActionForm", RoleActionForm.defaults());
+        model.addAttribute("emailRevealForm", form);
+
+        if (form.getReason() == null || form.getReason().isBlank()) {
+            model.addAttribute("adminError", "Reveal reason is required.");
+            return "portal/admin";
+        }
+
+        try {
+            Map<String, Object> result = adminUserManagementService.revealUserEmail(userId, form.getReason(), currentUserId());
+            model.addAttribute("emailRevealResult", result);
+            model.addAttribute("adminSuccess", "Email reveal logged and completed.");
+        } catch (RuntimeException ex) {
+            model.addAttribute("adminError", ex.getMessage());
+        }
+        return "portal/admin";
     }
 
-    private List<Map<String, Object>> maskedUsers(List<Map<String, Object>> users) {
-        return users.stream().map(user -> {
-            Map<String, Object> copy = new LinkedHashMap<>(user);
-            Object email = copy.get("email");
-            if (email != null) {
-                copy.put("email", piiMaskingService.maskEmail(String.valueOf(email)));
-            }
-            Object fullName = copy.get("full_name");
-            if (fullName != null) {
-                copy.put("full_name", piiMaskingService.maskName(String.valueOf(fullName)));
-            }
-            return copy;
-        }).toList();
+    private void populateModel(Model model) {
+        model.addAttribute("webhooks", webhookSecurityService.activeWebhooks());
+        model.addAttribute("users", adminUserManagementService.users(100));
+        model.addAttribute("traces", tracePersistenceService.latest(100));
+        model.addAttribute("nonceSample", webhookSecurityService.generateNonce());
     }
 
     private long currentUserId() {
@@ -357,5 +372,21 @@ public class AdminController {
 
         public String getRoleCode() { return roleCode; }
         public void setRoleCode(String roleCode) { this.roleCode = roleCode; }
+    }
+
+    public static final class EmailRevealForm {
+        private Long userId;
+        private String reason;
+
+        public static EmailRevealForm defaults() {
+            EmailRevealForm form = new EmailRevealForm();
+            form.setReason("Compliance investigation");
+            return form;
+        }
+
+        public Long getUserId() { return userId; }
+        public void setUserId(Long userId) { this.userId = userId; }
+        public String getReason() { return reason; }
+        public void setReason(String reason) { this.reason = reason; }
     }
 }

@@ -304,9 +304,12 @@ public class ContentRepository {
                 (select count(*) from leave_request_attachment where checksum_sha256 = ?)
                 +
                 (select count(*) from moderation_case_media where checksum_sha256 = ?)
+                +
+                (select count(*) from community_target_media where checksum_sha256 = ?)
             )
             """,
             Integer.class,
+            sha256,
             sha256,
             sha256,
             sha256,

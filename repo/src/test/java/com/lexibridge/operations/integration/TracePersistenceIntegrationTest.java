@@ -27,7 +27,8 @@ class TracePersistenceIntegrationTest {
     static final MySQLContainer<?> MYSQL = new MySQLContainer<>("mysql:8.4")
         .withDatabaseName("lexibridge")
         .withUsername("lexibridge")
-        .withPassword("lexibridge");
+        .withPassword("lexibridge")
+        .withCommand("--log-bin-trust-function-creators=1");
 
     @DynamicPropertySource
     static void configure(DynamicPropertyRegistry registry) {

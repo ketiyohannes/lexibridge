@@ -18,6 +18,21 @@ Default local admin credentials:
 - Username: `admin`
 - Password: `AdminPass2026!`
 
+## Architecture at a glance
+
+- Spring Boot (`Java 21`) + Thymeleaf portal + MySQL 8
+- Flyway-managed schema and policy controls
+- Module domains: content, moderation, booking/attendance, leave, payments, admin
+
+## Security controls implemented
+
+- Location and actor scope checks across portal and API endpoints
+- Device HMAC auth with admin key inventory/rotation/cutover workflows
+- PII encryption at rest and masked list/review display patterns
+- DB-level immutability triggers for audit and booking transition records
+- Moderation enforcement: users with active suspension cannot create post/comment/Q&A targets
+- Attendance scan enforcement: decoded booking ID is scope-checked before scan persistence
+
 ## Run Tests (Docker)
 
 ```bash
@@ -34,6 +49,34 @@ Keep the stack running after tests:
 
 ```bash
 KEEP_STACK_UP=true ./run_test.sh
+```
+
+## Playwright E2E (Recorded)
+
+```bash
+npm install
+npx playwright install
+docker compose up --build -d
+npx playwright test tests/e2e/major-flows.spec.ts
+```
+
+Artifacts:
+
+- Video + traces: `test-results/`
+- HTML report: `playwright-report/index.html`
+
+## Local dev commands
+
+Run all backend tests locally:
+
+```bash
+mvn test
+```
+
+Remove generated local artifacts:
+
+```bash
+rm -rf node_modules target test-results playwright-report
 ```
 
 ## Useful Commands

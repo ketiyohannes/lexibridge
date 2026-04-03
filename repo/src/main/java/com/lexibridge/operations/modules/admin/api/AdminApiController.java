@@ -2,6 +2,7 @@ package com.lexibridge.operations.modules.admin.api;
 
 import com.lexibridge.operations.modules.admin.service.WebhookSecurityService;
 import com.lexibridge.operations.modules.admin.service.AdminUserManagementService;
+import com.lexibridge.operations.modules.admin.service.DeviceHmacKeyRotationService;
 import com.lexibridge.operations.modules.admin.service.WebhookDeliveryService;
 import com.lexibridge.operations.monitoring.TracePersistenceService;
 import com.lexibridge.operations.security.service.AuthorizationScopeService;
@@ -27,17 +28,20 @@ public class AdminApiController {
     private final WebhookSecurityService webhookSecurityService;
     private final WebhookDeliveryService webhookDeliveryService;
     private final AdminUserManagementService adminUserManagementService;
+    private final DeviceHmacKeyRotationService deviceHmacKeyRotationService;
     private final TracePersistenceService tracePersistenceService;
     private final AuthorizationScopeService authorizationScopeService;
 
     public AdminApiController(WebhookSecurityService webhookSecurityService,
                               WebhookDeliveryService webhookDeliveryService,
                               AdminUserManagementService adminUserManagementService,
+                              DeviceHmacKeyRotationService deviceHmacKeyRotationService,
                               TracePersistenceService tracePersistenceService,
                               AuthorizationScopeService authorizationScopeService) {
         this.webhookSecurityService = webhookSecurityService;
         this.webhookDeliveryService = webhookDeliveryService;
         this.adminUserManagementService = adminUserManagementService;
+        this.deviceHmacKeyRotationService = deviceHmacKeyRotationService;
         this.tracePersistenceService = tracePersistenceService;
         this.authorizationScopeService = authorizationScopeService;
     }
@@ -131,6 +135,43 @@ public class AdminApiController {
         return adminUserManagementService.removeRole(userId, command.roleCode, actorUserId);
     }
 
+    @PostMapping("/users/{userId}/email/reveal")
+    public Map<String, Object> revealEmail(@org.springframework.web.bind.annotation.PathVariable long userId,
+                                           @Valid @RequestBody EmailRevealCommand command) {
+        long actorUserId = authorizationScopeService.requireCurrentUserId();
+        return adminUserManagementService.revealUserEmail(userId, command.reason, actorUserId);
+    }
+
+    @GetMapping("/device-clients/{clientKey}/hmac/keys")
+    public List<Map<String, Object>> hmacKeyInventory(@org.springframework.web.bind.annotation.PathVariable String clientKey) {
+        return deviceHmacKeyRotationService.keyInventory(clientKey);
+    }
+
+    @PostMapping("/device-clients/{clientKey}/hmac/rotate")
+    public Map<String, Object> rotateHmacKey(@org.springframework.web.bind.annotation.PathVariable String clientKey,
+                                             @Valid @RequestBody RotateHmacKeyCommand command) {
+        long actorUserId = authorizationScopeService.requireCurrentUserId();
+        return deviceHmacKeyRotationService.rotate(
+            clientKey,
+            command.sharedSecret,
+            command.overlapMinutes == null ? 30 : command.overlapMinutes,
+            command.reason,
+            actorUserId
+        );
+    }
+
+    @PostMapping("/device-clients/{clientKey}/hmac/cutover")
+    public Map<String, Object> cutoverHmacKey(@org.springframework.web.bind.annotation.PathVariable String clientKey,
+                                              @Valid @RequestBody CutoverHmacKeyCommand command) {
+        long actorUserId = authorizationScopeService.requireCurrentUserId();
+        return deviceHmacKeyRotationService.cutover(
+            clientKey,
+            command.activeKeyVersion,
+            command.reason,
+            actorUserId
+        );
+    }
+
     public static class RegisterWebhookCommand {
         @NotNull
         public Long locationId;
@@ -180,5 +221,25 @@ public class AdminApiController {
     public static class RoleCommand {
         @NotBlank
         public String roleCode;
+    }
+
+    public static class EmailRevealCommand {
+        @NotBlank
+        public String reason;
+    }
+
+    public static class RotateHmacKeyCommand {
+        @NotBlank
+        public String sharedSecret;
+        public Integer overlapMinutes;
+        @NotBlank
+        public String reason;
+    }
+
+    public static class CutoverHmacKeyCommand {
+        @NotNull
+        public Integer activeKeyVersion;
+        @NotBlank
+        public String reason;
     }
 }

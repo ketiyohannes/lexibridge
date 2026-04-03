@@ -2,6 +2,7 @@ package com.lexibridge.operations.web;
 
 import com.lexibridge.operations.modules.admin.api.AdminApiController;
 import com.lexibridge.operations.modules.admin.service.AdminUserManagementService;
+import com.lexibridge.operations.modules.admin.service.DeviceHmacKeyRotationService;
 import com.lexibridge.operations.modules.admin.service.WebhookDeliveryService;
 import com.lexibridge.operations.modules.admin.service.WebhookSecurityService;
 import com.lexibridge.operations.modules.booking.api.BookingApiController;
@@ -37,6 +38,7 @@ import org.springframework.security.provisioning.InMemoryUserDetailsManager;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.web.servlet.MockMvc;
 
 import java.util.List;
@@ -50,6 +52,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -73,6 +76,8 @@ class ApiAuthorizationWebMvcTest {
     private WebhookDeliveryService webhookDeliveryService;
     @MockBean
     private AdminUserManagementService adminUserManagementService;
+    @MockBean
+    private DeviceHmacKeyRotationService deviceHmacKeyRotationService;
     @MockBean
     private BookingService bookingService;
     @MockBean
@@ -108,6 +113,20 @@ class ApiAuthorizationWebMvcTest {
     void adminApi_shouldRejectNonAdminRole() throws Exception {
         mockMvc.perform(get("/api/v1/admin/status"))
             .andExpect(status().isForbidden());
+    }
+
+    @Test
+    @WithMockUser(roles = "ADMIN")
+    void adminHmacRotate_shouldAllowAdminRole() throws Exception {
+        when(authorizationScopeService.requireCurrentUserId()).thenReturn(1L);
+        when(deviceHmacKeyRotationService.rotate(eq("demo-device"), anyString(), eq(30), anyString(), eq(1L)))
+            .thenReturn(Map.of("status", "ROTATED", "newKeyVersion", 2));
+
+        mockMvc.perform(post("/api/v1/admin/device-clients/demo-device/hmac/rotate")
+                .with(csrf())
+                .contentType("application/json")
+                .content("{\"sharedSecret\":\"strong-secret-value-0000000000000000\",\"reason\":\"Routine key rotation\"}"))
+            .andExpect(status().isOk());
     }
 
     @Test
@@ -308,6 +327,20 @@ class ApiAuthorizationWebMvcTest {
     }
 
     @Test
+    @WithMockUser(roles = "FRONT_DESK")
+    void attendanceScan_shouldReturnForbiddenOnBookingScopeViolation() throws Exception {
+        when(bookingService.decodeAttendanceToken("signed-token")).thenReturn(77L);
+        doThrow(new org.springframework.security.access.AccessDeniedException("out of scope"))
+            .when(authorizationScopeService).assertBookingAccess(77L);
+
+        mockMvc.perform(post("/api/v1/bookings/attendance/scan")
+                .with(csrf())
+                .contentType("application/json")
+                .content("{\"token\":\"signed-token\",\"scannedBy\":9}"))
+            .andExpect(status().isForbidden());
+    }
+
+    @Test
     @WithMockUser(roles = "EMPLOYEE")
     void leaveSummary_shouldUseScopedLocationForNonAdmin() throws Exception {
         when(authorizationScopeService.currentLocationScope()).thenReturn(java.util.Optional.of(3L));
@@ -378,6 +411,36 @@ class ApiAuthorizationWebMvcTest {
                 .with(csrf())
                 .contentType("application/json")
                 .content("{\"locationId\":1,\"title\":\"Hello\",\"bodyHtml\":\"<p>Body</p>\"}"))
+            .andExpect(status().isOk());
+    }
+
+    @Test
+    @WithMockUser(roles = "EMPLOYEE")
+    void moderationCommunityPostCreate_shouldReturnForbiddenForSuspendedAuthor() throws Exception {
+        when(authorizationScopeService.requireCurrentUserId()).thenReturn(9L);
+        doThrow(new org.springframework.security.access.AccessDeniedException("suspended"))
+            .when(moderationService).createPostTarget(1L, 9L, "Hello", "<p>Body</p>");
+
+        mockMvc.perform(post("/api/v1/moderation/community/posts")
+                .with(csrf())
+                .contentType("application/json")
+                .content("{\"locationId\":1,\"title\":\"Hello\",\"bodyHtml\":\"<p>Body</p>\"}"))
+            .andExpect(status().isForbidden());
+    }
+
+    @Test
+    @WithMockUser(roles = "EMPLOYEE")
+    void moderationCommunityPostMediaUpload_shouldAllowAuthenticatedOwner() throws Exception {
+        when(authorizationScopeService.requireCurrentUserId()).thenReturn(9L);
+        when(moderationService.requireTargetLocation("POST", 101L)).thenReturn(1L);
+        when(moderationService.addTargetMedia(eq("POST"), eq(101L), eq("p.png"), org.mockito.ArgumentMatchers.any(), eq(9L)))
+            .thenReturn(Map.of("mediaId", 4L, "targetType", "POST", "targetId", 101L, "status", "UPLOADED"));
+
+        MockMultipartFile file = new MockMultipartFile("file", "p.png", "image/png", new byte[]{1, 2, 3});
+
+        mockMvc.perform(multipart("/api/v1/moderation/community/posts/101/media")
+                .file(file)
+                .with(csrf()))
             .andExpect(status().isOk());
     }
 
@@ -470,6 +533,17 @@ class ApiAuthorizationWebMvcTest {
             .when(authorizationScopeService).assertModerationCaseScope(9L);
 
         mockMvc.perform(get("/api/v1/moderation/cases/9/media/1/download"))
+            .andExpect(status().isForbidden());
+    }
+
+    @Test
+    @WithMockUser(roles = "MODERATOR")
+    void moderationTargetMediaDownload_shouldReturnForbiddenOnScopeViolation() throws Exception {
+        when(moderationService.requireTargetLocation("POST", 77L)).thenReturn(1L);
+        doThrow(new org.springframework.security.access.AccessDeniedException("out of scope"))
+            .when(authorizationScopeService).assertLocationAccess(1L);
+
+        mockMvc.perform(get("/api/v1/moderation/targets/POST/77/media/1/download"))
             .andExpect(status().isForbidden());
     }
 

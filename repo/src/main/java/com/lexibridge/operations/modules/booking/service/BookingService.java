@@ -5,9 +5,6 @@ import com.lexibridge.operations.modules.booking.model.BookingRequest;
 import com.lexibridge.operations.modules.content.model.FileValidationResult;
 import com.lexibridge.operations.modules.content.service.MediaValidationService;
 import com.lexibridge.operations.modules.booking.repository.BookingRepository;
-import com.lexibridge.operations.security.privacy.DataClassificationService;
-import com.lexibridge.operations.security.privacy.FieldEncryptionService;
-import com.lexibridge.operations.security.privacy.PiiMaskingService;
 import com.lexibridge.operations.storage.service.BinaryStorageService;
 import com.google.zxing.BarcodeFormat;
 import com.google.zxing.WriterException;
@@ -23,7 +20,6 @@ import java.io.IOException;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
-import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -33,32 +29,28 @@ import javax.imageio.ImageIO;
 @Service
 public class BookingService {
 
-    private static final List<String> FINAL_STATES = List.of("CANCELLED", "COMPLETED", "EXPIRED");
     private static final int QR_SIZE_PX = 220;
 
     private final BookingRepository bookingRepository;
     private final QrTokenService qrTokenService;
     private final AuditLogService auditLogService;
-    private final PiiMaskingService piiMaskingService;
-    private final FieldEncryptionService fieldEncryptionService;
-    private final DataClassificationService dataClassificationService;
+    private final BookingCustomerDataService bookingCustomerDataService;
+    private final BookingPolicyService bookingPolicyService;
     private final MediaValidationService mediaValidationService;
     private final BinaryStorageService binaryStorageService;
 
     public BookingService(BookingRepository bookingRepository,
                           QrTokenService qrTokenService,
                           AuditLogService auditLogService,
-                           PiiMaskingService piiMaskingService,
-                           FieldEncryptionService fieldEncryptionService,
-                           DataClassificationService dataClassificationService,
-                           MediaValidationService mediaValidationService,
-                           BinaryStorageService binaryStorageService) {
+                          BookingCustomerDataService bookingCustomerDataService,
+                          BookingPolicyService bookingPolicyService,
+                          MediaValidationService mediaValidationService,
+                          BinaryStorageService binaryStorageService) {
         this.bookingRepository = bookingRepository;
         this.qrTokenService = qrTokenService;
         this.auditLogService = auditLogService;
-        this.piiMaskingService = piiMaskingService;
-        this.fieldEncryptionService = fieldEncryptionService;
-        this.dataClassificationService = dataClassificationService;
+        this.bookingCustomerDataService = bookingCustomerDataService;
+        this.bookingPolicyService = bookingPolicyService;
         this.mediaValidationService = mediaValidationService;
         this.binaryStorageService = binaryStorageService;
     }
@@ -73,11 +65,9 @@ public class BookingService {
 
     @Transactional
     public Map<String, Object> reserve(BookingRequest request) {
-        if (request.durationMinutes() <= 0 || request.durationMinutes() % 15 != 0) {
-            throw new IllegalArgumentException("Duration must be a positive multiple of 15 minutes.");
-        }
+        bookingPolicyService.validateDuration(request.durationMinutes());
 
-        List<LocalDateTime> slotStarts = buildSlotStarts(request.startAt(), request.durationMinutes());
+        List<LocalDateTime> slotStarts = bookingPolicyService.buildSlotStarts(request.startAt(), request.durationMinutes());
         bookingRepository.ensureSlotRows(request.locationId(), slotStarts);
 
         int occupied = bookingRepository.countOccupiedSlotsForUpdate(
@@ -90,16 +80,14 @@ public class BookingService {
         }
 
         LocalDateTime endAt = request.startAt().plusMinutes(request.durationMinutes());
-        String normalizedName = dataClassificationService.sanitizePiiName(request.customerName());
-        String normalizedPhone = dataClassificationService.sanitizePiiPhone(request.customerPhone());
-        dataClassificationService.validatePiiEnvelope(normalizedName, normalizedPhone);
+        BookingCustomerDataService.PreparedCustomer customer = bookingCustomerDataService.prepareForStorage(request.customerName(), request.customerPhone());
 
         long bookingId = bookingRepository.createBookingOrder(
             request.locationId(),
             "ENCRYPTED",
-            normalizedPhone == null || normalizedPhone.isBlank() ? null : "ENCRYPTED",
-            fieldEncryptionService.encryptString(normalizedName),
-            fieldEncryptionService.encryptString(normalizedPhone),
+            customer.normalizedPhone() == null || customer.normalizedPhone().isBlank() ? null : "ENCRYPTED",
+            customer.encryptedName(),
+            customer.encryptedPhone(),
             request.startAt(),
             endAt,
             slotStarts.size(),
@@ -125,11 +113,11 @@ public class BookingService {
         String fromState = bookingRepository.currentState(bookingOrderId);
         String toState = targetState.trim().toUpperCase();
 
-        if (FINAL_STATES.contains(fromState)) {
+        if (bookingPolicyService.isFinalState(fromState)) {
             throw new IllegalStateException("Cannot transition from final state: " + fromState);
         }
 
-        if (!isAllowedTransition(fromState, toState)) {
+        if (!bookingPolicyService.isAllowedTransition(fromState, toState)) {
             throw new IllegalStateException("Invalid transition: " + fromState + " -> " + toState);
         }
 
@@ -148,7 +136,16 @@ public class BookingService {
 
     @Transactional
     public Map<String, Object> scanAttendance(String token, long scannedBy) {
-        long bookingId = qrTokenService.validateAndExtractBookingId(token);
+        long bookingId = decodeAttendanceToken(token);
+        return scanAttendanceForBooking(token, bookingId, scannedBy);
+    }
+
+    public long decodeAttendanceToken(String token) {
+        return qrTokenService.validateAndExtractBookingId(token);
+    }
+
+    @Transactional
+    public Map<String, Object> scanAttendanceForBooking(String token, long bookingId, long scannedBy) {
         bookingRepository.insertAttendanceScan(bookingId, qrTokenService.hashToken(token), scannedBy, true);
         auditLogService.logUserEvent(scannedBy, "ATTENDANCE_VERIFIED", "booking_order", String.valueOf(bookingId), null, Map.of());
         return Map.of("bookingId", bookingId, "attendance", "VERIFIED");
@@ -182,8 +179,8 @@ public class BookingService {
             .map(row -> {
                 Map<String, Object> timelineRow = new LinkedHashMap<>();
                 timelineRow.put("id", row.get("id"));
-                timelineRow.put("customerName", piiMaskingService.maskName(resolveCustomerName(row)));
-                timelineRow.put("customerPhone", piiMaskingService.maskPhone(resolveCustomerPhone(row)));
+                timelineRow.put("customerName", bookingCustomerDataService.maskedNameForDisplay(row));
+                timelineRow.put("customerPhone", bookingCustomerDataService.maskedPhoneForDisplay(row));
                 timelineRow.put("startAt", row.get("start_at"));
                 timelineRow.put("endAt", row.get("end_at"));
                 timelineRow.put("status", row.get("status"));
@@ -202,9 +199,7 @@ public class BookingService {
                                           int durationMinutes,
                                           long actorUserId,
                                           String reason) {
-        if (durationMinutes <= 0 || durationMinutes % 15 != 0) {
-            throw new IllegalArgumentException("Duration must be a positive multiple of 15 minutes.");
-        }
+        bookingPolicyService.validateDuration(durationMinutes);
         Map<String, Object> current = bookingRepository.bookingForUpdate(bookingOrderId);
         if (current == null) {
             throw new IllegalArgumentException("Booking order not found.");
@@ -216,11 +211,11 @@ public class BookingService {
         }
 
         long locationId = ((Number) current.get("location_id")).longValue();
-        List<LocalDateTime> oldSlots = buildSlotStarts(
+        List<LocalDateTime> oldSlots = bookingPolicyService.buildSlotStarts(
             (LocalDateTime) current.get("start_at"),
             ((Number) current.get("slot_count")).intValue() * 15
         );
-        List<LocalDateTime> newSlots = buildSlotStarts(newStartAt, durationMinutes);
+        List<LocalDateTime> newSlots = bookingPolicyService.buildSlotStarts(newStartAt, durationMinutes);
 
         bookingRepository.ensureSlotRows(locationId, newSlots);
         int conflicts = bookingRepository.countConflictingSlotsForUpdate(
@@ -296,39 +291,6 @@ public class BookingService {
         return Map.of("bookingId", bookingOrderId, "noShowAutoCloseDisabled", disabled, "reason", reason);
     }
 
-    private String resolveCustomerName(Map<String, Object> row) {
-        String encrypted = (String) row.get("customer_name_enc");
-        if (encrypted != null && !encrypted.isBlank()) {
-            return fieldEncryptionService.decryptString(encrypted);
-        }
-        return (String) row.get("customer_name");
-    }
-
-    private String resolveCustomerPhone(Map<String, Object> row) {
-        String encrypted = (String) row.get("customer_phone_enc");
-        if (encrypted != null && !encrypted.isBlank()) {
-            return fieldEncryptionService.decryptString(encrypted);
-        }
-        return (String) row.get("customer_phone");
-    }
-
-    private boolean isAllowedTransition(String from, String to) {
-        return switch (from) {
-            case "RESERVED" -> List.of("CONFIRMED", "CANCELLED", "EXPIRED").contains(to);
-            case "CONFIRMED" -> List.of("COMPLETED", "CANCELLED").contains(to);
-            default -> false;
-        };
-    }
-
-    private List<LocalDateTime> buildSlotStarts(LocalDateTime startAt, int durationMinutes) {
-        List<LocalDateTime> slots = new ArrayList<>();
-        int count = durationMinutes / 15;
-        for (int i = 0; i < count; i++) {
-            slots.add(startAt.plusMinutes((long) i * 15));
-        }
-        return slots;
-    }
-
     public int negativeInventorySignals() {
         return bookingRepository.negativeInventorySignals();
     }
@@ -388,8 +350,8 @@ public class BookingService {
         auditLogService.logUserEvent(actorUserId, "BOOKING_PRINT_CARD_VIEWED", "booking_order", String.valueOf(bookingOrderId), null, Map.of());
         return Map.of(
             "bookingId", bookingOrderId,
-            "customerName", piiMaskingService.maskName(resolveCustomerName(booking)),
-            "customerPhone", piiMaskingService.maskPhone(resolveCustomerPhone(booking)),
+            "customerName", bookingCustomerDataService.maskedNameForDisplay(booking),
+            "customerPhone", bookingCustomerDataService.maskedPhoneForDisplay(booking),
             "startAt", booking.get("start_at"),
             "endAt", endAt,
             "status", booking.get("status"),

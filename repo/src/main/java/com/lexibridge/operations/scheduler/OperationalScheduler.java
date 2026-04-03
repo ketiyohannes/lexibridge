@@ -103,10 +103,12 @@ public class OperationalScheduler {
 
     @Scheduled(cron = "0 30 2 * * *")
     public void runRetentionPurge() {
+        int redactionRemoved = retentionService.purgeExpiredAuditRedactionEvents();
         int auditRemoved = retentionService.purgeExpiredAuditLogs();
         int reconRemoved = retentionService.purgeExpiredReconciliationExceptions();
-        if (auditRemoved > 0 || reconRemoved > 0) {
-            log.info("Retention purge removed audit={}, reconciliation={}", auditRemoved, reconRemoved);
+        int reconRunRemoved = retentionService.purgeExpiredReconciliationRuns();
+        if (redactionRemoved > 0 || auditRemoved > 0 || reconRemoved > 0 || reconRunRemoved > 0) {
+            log.info("Retention purge removed auditRedactions={}, audit={}, reconciliationExceptions={}, reconciliationRuns={}", redactionRemoved, auditRemoved, reconRemoved, reconRunRemoved);
         }
     }
 }

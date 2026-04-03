@@ -3,6 +3,7 @@ package com.lexibridge.operations.modules.admin.service;
 import com.lexibridge.operations.governance.AuditLogService;
 import com.lexibridge.operations.modules.admin.repository.AdminUserRepository;
 import com.lexibridge.operations.security.privacy.FieldEncryptionService;
+import com.lexibridge.operations.security.privacy.PiiMaskingService;
 import com.lexibridge.operations.security.service.PasswordPolicyValidator;
 import jakarta.transaction.Transactional;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -21,17 +22,20 @@ public class AdminUserManagementService {
     private final PasswordEncoder passwordEncoder;
     private final AuditLogService auditLogService;
     private final FieldEncryptionService fieldEncryptionService;
+    private final PiiMaskingService piiMaskingService;
 
     public AdminUserManagementService(AdminUserRepository adminUserRepository,
                                       PasswordPolicyValidator passwordPolicyValidator,
                                       PasswordEncoder passwordEncoder,
                                       AuditLogService auditLogService,
-                                      FieldEncryptionService fieldEncryptionService) {
+                                      FieldEncryptionService fieldEncryptionService,
+                                      PiiMaskingService piiMaskingService) {
         this.adminUserRepository = adminUserRepository;
         this.passwordPolicyValidator = passwordPolicyValidator;
         this.passwordEncoder = passwordEncoder;
         this.auditLogService = auditLogService;
         this.fieldEncryptionService = fieldEncryptionService;
+        this.piiMaskingService = piiMaskingService;
     }
 
     public List<Map<String, Object>> users(int limit) {
@@ -41,7 +45,10 @@ public class AdminUserManagementService {
             .map(row -> {
                 Map<String, Object> mapped = new LinkedHashMap<>(row);
                 String encryptedEmail = row.get("email") == null ? null : String.valueOf(row.get("email"));
-                mapped.put("email", fieldEncryptionService.decryptString(encryptedEmail));
+                String decryptedEmail = fieldEncryptionService.decryptString(encryptedEmail);
+                mapped.put("email", decryptedEmail == null ? null : piiMaskingService.maskEmail(decryptedEmail));
+                String fullName = row.get("full_name") == null ? null : String.valueOf(row.get("full_name"));
+                mapped.put("full_name", fullName == null ? null : piiMaskingService.maskName(fullName));
                 String roleCodes = (String) row.get("role_codes");
                 mapped.put("roles", roleCodes == null || roleCodes.isBlank() ? List.of() : List.of(roleCodes.split(",")));
                 return mapped;
@@ -168,6 +175,40 @@ public class AdminUserManagementService {
             Map.of("roleCode", roleCode, "roles", roles)
         );
         return Map.of("userId", userId, "roles", roles);
+    }
+
+    public Map<String, Object> revealUserEmail(long userId, String reason, long actorUserId) {
+        if (reason == null || reason.isBlank() || reason.trim().length() < 8) {
+            throw new IllegalArgumentException("Reveal reason is required and must be at least 8 characters.");
+        }
+
+        Map<String, Object> user = adminUserRepository.userById(userId);
+        if (user == null) {
+            throw new IllegalArgumentException("User not found.");
+        }
+
+        String encryptedEmail = user.get("email") == null ? null : String.valueOf(user.get("email"));
+        String revealedEmail = fieldEncryptionService.decryptString(encryptedEmail);
+
+        Number locationNumber = (Number) user.get("location_id");
+        Long locationId = locationNumber == null ? null : locationNumber.longValue();
+        auditLogService.logUserEvent(
+            actorUserId,
+            "ADMIN_USER_EMAIL_REVEALED",
+            "app_user",
+            String.valueOf(userId),
+            locationId,
+            Map.of(
+                "reason", reason.trim(),
+                "username", String.valueOf(user.get("username"))
+            )
+        );
+
+        return Map.of(
+            "userId", userId,
+            "username", String.valueOf(user.get("username")),
+            "email", revealedEmail == null ? "" : revealedEmail
+        );
     }
 
     private void ensureUser(long userId) {

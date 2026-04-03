@@ -98,7 +98,9 @@ public class BookingApiController {
     @PostMapping("/attendance/scan")
     public Map<String, Object> scanAttendance(@Valid @RequestBody AttendanceScanCommand command) {
         authorizationScopeService.assertActorUser(command.scannedBy);
-        return bookingService.scanAttendance(command.token, command.scannedBy);
+        long bookingId = bookingService.decodeAttendanceToken(command.token);
+        authorizationScopeService.assertBookingAccess(bookingId);
+        return bookingService.scanAttendanceForBooking(command.token, bookingId, command.scannedBy);
     }
 
     @PostMapping("/{bookingId}/attachments")

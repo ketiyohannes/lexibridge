@@ -6,12 +6,14 @@ import com.lexibridge.operations.modules.content.service.MediaValidationService;
 import com.lexibridge.operations.modules.moderation.model.ModerationCaseCommand;
 import com.lexibridge.operations.modules.moderation.repository.ModerationRepository;
 import com.lexibridge.operations.storage.service.BinaryStorageService;
-import jakarta.transaction.Transactional;
 import org.springframework.stereotype.Service;
+import org.springframework.security.access.AccessDeniedException;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
 @Service
@@ -171,15 +173,17 @@ public class ModerationService {
         return original.substring(start, end);
     }
 
-    @Transactional
+    @Transactional(noRollbackFor = AccessDeniedException.class)
     public long createPostTarget(long locationId, long authorUserId, String title, String bodyHtml) {
+        enforcePostingAllowed(authorUserId, locationId, "POST", null);
         long postId = moderationRepository.createPost(locationId, authorUserId, title, bodyHtml);
         autoPreScreen(locationId, "POST", postId, String.valueOf(title) + " " + String.valueOf(bodyHtml));
         return postId;
     }
 
-    @Transactional
+    @Transactional(noRollbackFor = AccessDeniedException.class)
     public long createCommentTarget(long locationId, long postId, long authorUserId, String bodyText) {
+        enforcePostingAllowed(authorUserId, locationId, "COMMENT", postId);
         Long postLocation = moderationRepository.locationForTarget("POST", postId);
         if (postLocation == null || !postLocation.equals(locationId)) {
             throw new IllegalArgumentException("Parent post not found in the requested location.");
@@ -189,8 +193,9 @@ public class ModerationService {
         return commentId;
     }
 
-    @Transactional
+    @Transactional(noRollbackFor = AccessDeniedException.class)
     public long createQnaTarget(long locationId, long authorUserId, String questionText, String answerText) {
+        enforcePostingAllowed(authorUserId, locationId, "QNA", null);
         long qnaId = moderationRepository.createQna(locationId, authorUserId, questionText, answerText);
         autoPreScreen(locationId, "QNA", qnaId, String.valueOf(questionText) + " " + String.valueOf(answerText));
         return qnaId;
@@ -233,6 +238,109 @@ public class ModerationService {
             throw new IllegalArgumentException("Moderation case media does not belong to requested case.");
         }
         return binaryStorageService.read(String.valueOf(media.get("storage_path")));
+    }
+
+    @Transactional
+    public Map<String, Object> addTargetMedia(String targetType,
+                                              long targetId,
+                                              String filename,
+                                              byte[] bytes,
+                                              long actorUserId) {
+        String normalizedTargetType = normalizeTargetType(targetType);
+        Long locationId = moderationRepository.locationForTarget(normalizedTargetType, targetId);
+        if (locationId == null) {
+            throw new IllegalArgumentException("Target content not found for supported target type.");
+        }
+
+        FileValidationResult validation = mediaValidationService.validate(filename, bytes);
+        if (!validation.valid()) {
+            throw new IllegalArgumentException("Attachment rejected: " + validation.reason());
+        }
+
+        String storagePath = "moderation-target-media/"
+            + normalizedTargetType.toLowerCase(Locale.ROOT)
+            + "/"
+            + targetId
+            + "/"
+            + validation.checksumSha256()
+            + "."
+            + extension(filename);
+        binaryStorageService.store(storagePath, validation.checksumSha256(), validation.detectedMime(), bytes);
+        long mediaId = moderationRepository.insertTargetMedia(
+            normalizedTargetType,
+            targetId,
+            storagePath,
+            validation.detectedMime(),
+            bytes.length,
+            validation.checksumSha256(),
+            actorUserId
+        );
+
+        auditLogService.logUserEvent(
+            actorUserId,
+            "MODERATION_TARGET_MEDIA_UPLOADED",
+            "community_target_media",
+            String.valueOf(mediaId),
+            locationId,
+            Map.of("targetType", normalizedTargetType, "targetId", targetId)
+        );
+
+        return Map.of(
+            "mediaId", mediaId,
+            "targetType", normalizedTargetType,
+            "targetId", targetId,
+            "status", "UPLOADED"
+        );
+    }
+
+    public List<Map<String, Object>> targetMedia(String targetType, long targetId) {
+        String normalizedTargetType = normalizeTargetType(targetType);
+        if (moderationRepository.locationForTarget(normalizedTargetType, targetId) == null) {
+            throw new IllegalArgumentException("Target content not found for supported target type.");
+        }
+        return moderationRepository.targetMedia(normalizedTargetType, targetId);
+    }
+
+    public List<Map<String, Object>> caseTargetMedia(long caseId) {
+        Map<String, Object> details = caseDetails(caseId);
+        String targetType = String.valueOf(details.get("target_type"));
+        long targetId = ((Number) details.get("target_id")).longValue();
+        return targetMedia(targetType, targetId);
+    }
+
+    public BinaryStorageService.DownloadedBinary downloadTargetMedia(String targetType, long targetId, long mediaId) {
+        String normalizedTargetType = normalizeTargetType(targetType);
+        Map<String, Object> media = moderationRepository.targetMediaById(mediaId);
+        if (media == null) {
+            throw new IllegalArgumentException("Target media not found.");
+        }
+
+        String actualTargetType = String.valueOf(media.get("target_type"));
+        long actualTargetId = ((Number) media.get("target_id")).longValue();
+        if (!normalizedTargetType.equals(actualTargetType) || targetId != actualTargetId) {
+            throw new IllegalArgumentException("Target media does not belong to requested target.");
+        }
+        return binaryStorageService.read(String.valueOf(media.get("storage_path")));
+    }
+
+    public long requireTargetLocation(String targetType, long targetId) {
+        String normalizedTargetType = normalizeTargetType(targetType);
+        Long locationId = moderationRepository.locationForTarget(normalizedTargetType, targetId);
+        if (locationId == null) {
+            throw new IllegalArgumentException("Target content not found for supported target type.");
+        }
+        return locationId;
+    }
+
+    public void assertTargetOwner(String targetType, long targetId, long actorUserId) {
+        String normalizedTargetType = normalizeTargetType(targetType);
+        Long ownerUserId = moderationRepository.authorForTarget(normalizedTargetType, targetId);
+        if (ownerUserId == null) {
+            throw new IllegalArgumentException("Target content not found for supported target type.");
+        }
+        if (ownerUserId.longValue() != actorUserId) {
+            throw new org.springframework.security.access.AccessDeniedException("Target media access is limited to the content owner.");
+        }
     }
 
     private void assertTargetLocation(String targetType, long targetId, long locationId) {
@@ -280,5 +388,46 @@ public class ModerationService {
             locationId,
             Map.of("targetType", targetType, "targetId", targetId)
         );
+    }
+
+    private String normalizeTargetType(String targetType) {
+        String normalized = targetType == null ? "" : targetType.trim().toUpperCase(Locale.ROOT);
+        if (!List.of("POST", "COMMENT", "QNA").contains(normalized)) {
+            throw new IllegalArgumentException("Target type must be one of POST, COMMENT, or QNA.");
+        }
+        return normalized;
+    }
+
+    private String extension(String filename) {
+        if (filename == null || !filename.contains(".")) {
+            return "bin";
+        }
+        return filename.substring(filename.lastIndexOf('.') + 1).toLowerCase(Locale.ROOT);
+    }
+
+    private void enforcePostingAllowed(long authorUserId,
+                                       long locationId,
+                                       String targetType,
+                                       Long parentTargetId) {
+        if (!moderationRepository.hasActiveSuspension(authorUserId)) {
+            return;
+        }
+
+        Map<String, Object> payload = new java.util.LinkedHashMap<>();
+        payload.put("targetType", targetType);
+        if (parentTargetId != null) {
+            payload.put("parentTargetId", parentTargetId);
+        }
+        payload.put("reason", "active_suspension");
+
+        auditLogService.logUserEvent(
+            authorUserId,
+            "SUSPENDED_CONTENT_POST_BLOCKED",
+            "community_target",
+            parentTargetId == null ? "NEW" : String.valueOf(parentTargetId),
+            locationId,
+            payload
+        );
+        throw new AccessDeniedException("User is currently suspended from community posting.");
     }
 }

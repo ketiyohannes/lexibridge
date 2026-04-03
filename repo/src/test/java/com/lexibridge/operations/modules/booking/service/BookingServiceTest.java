@@ -4,9 +4,6 @@ import com.lexibridge.operations.modules.booking.model.BookingRequest;
 import com.lexibridge.operations.modules.booking.repository.BookingRepository;
 import com.lexibridge.operations.modules.content.service.MediaValidationService;
 import com.lexibridge.operations.governance.AuditLogService;
-import com.lexibridge.operations.security.privacy.DataClassificationService;
-import com.lexibridge.operations.security.privacy.FieldEncryptionService;
-import com.lexibridge.operations.security.privacy.PiiMaskingService;
 import com.lexibridge.operations.storage.service.BinaryStorageService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -28,6 +25,7 @@ import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.doThrow;
 
 @ExtendWith(MockitoExtension.class)
 class BookingServiceTest {
@@ -39,11 +37,9 @@ class BookingServiceTest {
     @Mock
     private AuditLogService auditLogService;
     @Mock
-    private PiiMaskingService piiMaskingService;
+    private BookingCustomerDataService bookingCustomerDataService;
     @Mock
-    private FieldEncryptionService fieldEncryptionService;
-    @Mock
-    private DataClassificationService dataClassificationService;
+    private BookingPolicyService bookingPolicyService;
     @Mock
     private MediaValidationService mediaValidationService;
     @Mock
@@ -57,9 +53,8 @@ class BookingServiceTest {
             bookingRepository,
             qrTokenService,
             auditLogService,
-            piiMaskingService,
-            fieldEncryptionService,
-            dataClassificationService,
+            bookingCustomerDataService,
+            bookingPolicyService,
             mediaValidationService,
             binaryStorageService
         );
@@ -78,10 +73,13 @@ class BookingServiceTest {
         );
 
         when(bookingRepository.countOccupiedSlotsForUpdate(anyLong(), any(), any())).thenReturn(0);
-        when(dataClassificationService.sanitizePiiName(any())).thenReturn("Alice");
-        when(dataClassificationService.sanitizePiiPhone(any())).thenReturn("5550100");
-        when(fieldEncryptionService.encryptString("Alice")).thenReturn("enc:alice");
-        when(fieldEncryptionService.encryptString("5550100")).thenReturn("enc:phone");
+        when(bookingCustomerDataService.prepareForStorage(any(), any())).thenReturn(
+            new BookingCustomerDataService.PreparedCustomer("Alice", "5550100", "enc:alice", "enc:phone")
+        );
+        when(bookingPolicyService.buildSlotStarts(any(), eq(30))).thenReturn(java.util.List.of(
+            LocalDateTime.of(2026, 1, 10, 10, 0),
+            LocalDateTime.of(2026, 1, 10, 10, 15)
+        ));
         when(bookingRepository.createBookingOrder(anyLong(), any(), any(), any(), any(), any(), any(), eq(2), any(), anyLong(), any(), any())).thenReturn(88L);
         when(bookingRepository.occupySlots(anyLong(), anyList(), anyLong())).thenReturn(2);
         when(qrTokenService.createToken(eq(88L), any())).thenReturn("signed-token");
@@ -104,6 +102,8 @@ class BookingServiceTest {
             20,
             null
         );
+        doThrow(new IllegalArgumentException("Duration must be a positive multiple of 15 minutes."))
+            .when(bookingPolicyService).validateDuration(20);
 
         assertThrows(IllegalArgumentException.class, () -> bookingService.reserve(request));
     }
@@ -121,10 +121,13 @@ class BookingServiceTest {
         );
 
         when(bookingRepository.countOccupiedSlotsForUpdate(anyLong(), any(), any())).thenReturn(0);
-        when(dataClassificationService.sanitizePiiName(any())).thenReturn("Alice");
-        when(dataClassificationService.sanitizePiiPhone(any())).thenReturn("5550100");
-        when(fieldEncryptionService.encryptString("Alice")).thenReturn("enc:alice");
-        when(fieldEncryptionService.encryptString("5550100")).thenReturn("enc:phone");
+        when(bookingCustomerDataService.prepareForStorage(any(), any())).thenReturn(
+            new BookingCustomerDataService.PreparedCustomer("Alice", "5550100", "enc:alice", "enc:phone")
+        );
+        when(bookingPolicyService.buildSlotStarts(any(), eq(30))).thenReturn(java.util.List.of(
+            LocalDateTime.of(2026, 1, 10, 10, 0),
+            LocalDateTime.of(2026, 1, 10, 10, 15)
+        ));
         when(bookingRepository.createBookingOrder(anyLong(), any(), any(), any(), any(), any(), any(), anyInt(), any(), anyLong(), any(), any())).thenReturn(88L);
         when(bookingRepository.occupySlots(anyLong(), anyList(), anyLong())).thenReturn(1);
 
@@ -134,6 +137,7 @@ class BookingServiceTest {
     @Test
     void transition_shouldReleaseSlotsOnCancellation() {
         when(bookingRepository.currentState(77L)).thenReturn("RESERVED");
+        when(bookingPolicyService.isAllowedTransition("RESERVED", "CANCELLED")).thenReturn(true);
 
         Map<String, Object> result = bookingService.transition(77L, "cancelled", 9L, "customer request");
 
@@ -163,6 +167,13 @@ class BookingServiceTest {
         booking.put("slot_count", 2);
 
         when(bookingRepository.bookingForUpdate(77L)).thenReturn(booking);
+        when(bookingPolicyService.buildSlotStarts(any(), eq(30))).thenReturn(java.util.List.of(
+            LocalDateTime.of(2026, 1, 10, 10, 0),
+            LocalDateTime.of(2026, 1, 10, 10, 15)
+        )).thenReturn(java.util.List.of(
+            LocalDateTime.of(2026, 1, 10, 11, 0),
+            LocalDateTime.of(2026, 1, 10, 11, 15)
+        ));
         when(bookingRepository.countConflictingSlotsForUpdate(anyLong(), any(), any(), anyLong())).thenReturn(0);
         when(bookingRepository.occupySlotsForBooking(anyLong(), anyList(), anyLong())).thenReturn(2);
 
@@ -200,10 +211,8 @@ class BookingServiceTest {
         booking.put("status", "CONFIRMED");
 
         when(bookingRepository.bookingById(77L)).thenReturn(booking);
-        when(fieldEncryptionService.decryptString("enc:alice")).thenReturn("Alice");
-        when(fieldEncryptionService.decryptString("enc:phone")).thenReturn("5550100");
-        when(piiMaskingService.maskName("Alice")).thenReturn("A***e");
-        when(piiMaskingService.maskPhone("5550100")).thenReturn("***0100");
+        when(bookingCustomerDataService.maskedNameForDisplay(any())).thenReturn("A***e");
+        when(bookingCustomerDataService.maskedPhoneForDisplay(any())).thenReturn("***0100");
         when(qrTokenService.createToken(eq(77L), any())).thenReturn("print-token");
 
         Map<String, Object> result = bookingService.printableCard(77L, 9L);
